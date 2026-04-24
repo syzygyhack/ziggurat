@@ -1,0 +1,98 @@
+syntax = "proto3";
+
+package ziggurat;
+
+option go_package = "github.com/syzygyhack/ziggurat/internal/transport/pb";
+
+// ZigguratNode is the inter-node RPC service. Every node in the cluster
+// exposes this on the gRPC port (default 7101).
+service ZigguratNode {
+  // DispatchTask sends a task to this node for execution. The coordinator
+  // calls this on the selected worker after locality/load scoring.
+  rpc DispatchTask(DispatchTaskRequest) returns (DispatchTaskResponse);
+
+  // TaskResult streams back the result once the task completes. The
+  // coordinator calls this to collect output from a remote worker.
+  rpc TaskResult(TaskResultRequest) returns (TaskResultResponse);
+
+  // PullShard downloads an object's data from this node. Used by workers
+  // to fetch task inputs that aren't local, and by the replication system
+  // to copy objects between nodes.
+  rpc PullShard(PullShardRequest) returns (stream ShardData);
+
+  // PushShard uploads an object's data to this node. Used by the
+  // replication system to write replicas. The first message in the stream
+  // MUST carry the header (hash + size); subsequent messages carry data chunks.
+  rpc PushShard(stream PushShardMsg) returns (PushShardResponse);
+}
+
+// --- Task dispatch ---
+
+message DispatchTaskRequest {
+  string id = 1;
+  repeated string command = 2;
+  map<string, string> env = 3;
+  map<string, string> input_refs = 4;  // name -> content hash
+  repeated string artifacts = 5;        // content hashes
+  map<string, string> params = 6;
+  repeated string requires = 7;
+  repeated string constraints = 8;
+  int32 priority = 9;
+  int64 timeout_ns = 10;               // nanoseconds, 0 = cluster default
+  int32 max_retries = 11;
+  int64 max_output_size = 12;
+  string affinity = 13;
+  bool keep_workspace = 14;
+  string image = 15;
+  int32 attempt = 16;
+}
+
+message DispatchTaskResponse {
+  bool accepted = 1;
+  string error = 2;       // set if accepted=false
+  string assigned_id = 3; // the task ID assigned by the receiving coordinator
+}
+
+// --- Task result ---
+
+message TaskResultRequest {
+  string task_id = 1;
+}
+
+message TaskResultResponse {
+  string task_id = 1;
+  int32 exit_code = 2;
+  string stdout = 3;
+  string stderr = 4;
+  string error = 5;
+  string output_ref = 6;
+  int64 output_bytes = 7;
+  int64 wall_time_ns = 8;
+}
+
+// --- Shard transfer ---
+
+message PullShardRequest {
+  string hash = 1;  // BLAKE3 content hash
+}
+
+message ShardData {
+  bytes data = 1;   // chunk of object data (up to 256KB per message)
+}
+
+message PushShardMsg {
+  oneof payload {
+    PushShardHeader header = 1;
+    bytes data = 2;  // chunk of object data (up to 256KB per message)
+  }
+}
+
+message PushShardHeader {
+  string hash = 1;
+  int64 size = 2;   // expected total size
+}
+
+message PushShardResponse {
+  bool ok = 1;
+  string error = 2;
+}

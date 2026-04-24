@@ -1,0 +1,115 @@
+package store
+
+import (
+	"encoding/hex"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+
+	"github.com/zeebo/blake3"
+)
+
+// WriteBlob writes data from r to disk under a content-addressed path.
+// Returns the BLAKE3 hash and total bytes written.
+func WriteBlob(storeDir string, r io.Reader) ([32]byte, int64, error) {
+	// Write to a temp file while computing the hash.
+	tmp, err := os.CreateTemp(storeDir, ".blob-*")
+	if err != nil {
+		return [32]byte{}, 0, fmt.Errorf("create temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		// Clean up temp file on failure.
+		if tmpPath != "" {
+			os.Remove(tmpPath)
+		}
+	}()
+
+	hasher := blake3.New()
+	w := io.MultiWriter(tmp, hasher)
+
+	n, err := io.Copy(w, r)
+	if err != nil {
+		tmp.Close()
+		return [32]byte{}, 0, fmt.Errorf("write blob: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return [32]byte{}, 0, fmt.Errorf("close temp file: %w", err)
+	}
+
+	var hash [32]byte
+	hasher.Sum(hash[:0])
+
+	// Move to final content-addressed path.
+	dest := blobPath(storeDir, hex.EncodeToString(hash[:]))
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return [32]byte{}, 0, fmt.Errorf("create shard dir: %w", err)
+	}
+
+	// If the file already exists (deduplication), just remove the temp.
+	if _, err := os.Stat(dest); err == nil {
+		os.Remove(tmpPath)
+		tmpPath = "" // prevent deferred cleanup
+		return hash, n, nil
+	}
+
+	if err := os.Rename(tmpPath, dest); err != nil {
+		return [32]byte{}, 0, fmt.Errorf("rename blob: %w", err)
+	}
+	tmpPath = "" // rename succeeded, don't clean up
+
+	return hash, n, nil
+}
+
+// ReadBlob opens a blob by hash for reading, verifying integrity.
+func ReadBlob(storeDir string, hashHex string) (io.ReadCloser, error) {
+	path := blobPath(storeDir, hashHex)
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open blob %s: %w", hashHex[:12], err)
+	}
+	return &verifyingReader{f: f, hasher: blake3.New(), expected: hashHex}, nil
+}
+
+// DeleteBlob removes a blob from disk.
+func DeleteBlob(storeDir string, hashHex string) error {
+	path := blobPath(storeDir, hashHex)
+	return os.Remove(path)
+}
+
+// blobPath returns the disk path for a blob: <storeDir>/<2-char prefix>/<full hash>.
+func blobPath(storeDir, hashHex string) string {
+	return filepath.Join(storeDir, hashHex[:2], hashHex)
+}
+
+// verifyingReader wraps a file reader and checks the BLAKE3 hash on Close.
+type verifyingReader struct {
+	f        *os.File
+	hasher   *blake3.Hasher
+	expected string
+}
+
+func (vr *verifyingReader) Read(p []byte) (int, error) {
+	n, err := vr.f.Read(p)
+	if n > 0 {
+		vr.hasher.Write(p[:n])
+	}
+	return n, err
+}
+
+func (vr *verifyingReader) Close() error {
+	defer vr.f.Close()
+
+	// Read any remaining data to complete hash.
+	io.Copy(io.Discard, vr)
+
+	var hash [32]byte
+	vr.hasher.Sum(hash[:0])
+	actual := hex.EncodeToString(hash[:])
+
+	if actual != vr.expected {
+		return fmt.Errorf("integrity check failed: expected %s, got %s", vr.expected[:12], actual[:12])
+	}
+	return nil
+}

@@ -1,0 +1,26 @@
+# Binary
+/ziggurat
+
+# Vendor
+/vendor
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tool state
+.avril/
+.cardinal/
+.claude/
+.xtal/
+
+# Data
+*.db
+*.wal

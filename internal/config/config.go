@@ -1,0 +1,190 @@
+package config
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	"gopkg.in/yaml.v3"
+)
+
+// Config mirrors the ziggurat.yaml schema.
+type Config struct {
+	Node       NodeConfig       `yaml:"node"`
+	Network    NetworkConfig    `yaml:"network"`
+	Client     ClientConfig     `yaml:"client"`
+	Cluster    ClusterConfig    `yaml:"cluster"`
+	Storage    StorageConfig    `yaml:"storage"`
+	Compute    ComputeConfig    `yaml:"compute"`
+	Resilience ResilienceConfig `yaml:"resilience"`
+	Metrics    MetricsConfig    `yaml:"metrics"`
+}
+
+type NodeConfig struct {
+	Name         string            `yaml:"name"`
+	Role         string            `yaml:"role"` // "hybrid" (default), "coordinator", "worker"
+	Tags         []string          `yaml:"tags"`
+	Capabilities map[string]string `yaml:"capabilities"`
+	DataDir      string            `yaml:"data_dir"`
+}
+
+type NetworkConfig struct {
+	Bind       string `yaml:"bind"`
+	HTTPPort   int    `yaml:"http_port"`
+	GRPCPort   int    `yaml:"grpc_port"`
+	GossipPort int    `yaml:"gossip_port"`
+	Advertise  string `yaml:"advertise"`
+}
+
+type ClientConfig struct {
+	Addr string `yaml:"addr"`
+}
+
+type ClusterConfig struct {
+	Discovery string   `yaml:"discovery"`
+	Seeds     []string `yaml:"seeds"`
+	Name      string   `yaml:"name"`
+}
+
+type StorageConfig struct {
+	DataDir           string        `yaml:"data_dir"`
+	Capacity          int64         `yaml:"capacity"`
+	ReplicationFactor int           `yaml:"replication_factor"`
+	Erasure           ErasureConfig `yaml:"erasure"`
+	TierThresholds    TierConfig    `yaml:"tier_thresholds"`
+	GCGracePeriod     time.Duration `yaml:"gc_grace_period"`
+}
+
+type ErasureConfig struct {
+	Enabled      bool `yaml:"enabled"`
+	DataShards   int  `yaml:"data_shards"`
+	ParityShards int  `yaml:"parity_shards"`
+}
+
+type TierConfig struct {
+	Medium int64 `yaml:"medium"`
+	Large  int64 `yaml:"large"`
+}
+
+type ComputeConfig struct {
+	Concurrency           int           `yaml:"concurrency"`
+	MemoryLimit           int64         `yaml:"memory_limit"`
+	TaskTimeout           time.Duration `yaml:"task_timeout"`
+	MaxOutputSize         int64         `yaml:"max_output_size"`
+	CancelGrace           time.Duration `yaml:"cancel_grace"`
+	WorkspaceDir          string        `yaml:"workspace_dir"`
+	MaxRetainedWorkspaces int           `yaml:"max_retained_workspaces"`
+}
+
+type ResilienceConfig struct {
+	Mode              string        `yaml:"mode"`
+	HeartbeatInterval time.Duration `yaml:"heartbeat_interval"`
+	SuspicionTimeout  time.Duration `yaml:"suspicion_timeout"`
+	TaskRetries       int           `yaml:"task_retries"`
+	DeadLetter        bool          `yaml:"dead_letter"`
+}
+
+type MetricsConfig struct {
+	Enabled bool `yaml:"enabled"`
+}
+
+// DefaultDataDir returns the platform-standard data directory (~/.ziggurat).
+func DefaultDataDir() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".ziggurat")
+}
+
+// DefaultConfig returns a Config with sensible defaults for single-node operation.
+func DefaultConfig() *Config {
+	return &Config{
+		Node: NodeConfig{
+			DataDir: DefaultDataDir(),
+		},
+		Network: NetworkConfig{
+			Bind:       "0.0.0.0",
+			HTTPPort:   7100,
+			GRPCPort:   7101,
+			GossipPort: 7102,
+		},
+		Cluster: ClusterConfig{
+			Discovery: "auto",
+			Name:      "default",
+		},
+		Storage: StorageConfig{
+			ReplicationFactor: 2,
+			Erasure: ErasureConfig{
+				Enabled:      true,
+				DataShards:   4,
+				ParityShards: 2,
+			},
+			TierThresholds: TierConfig{
+				Medium: 1 << 20,  // 1 MB
+				Large:  64 << 20, // 64 MB
+			},
+			GCGracePeriod: 1 * time.Hour,
+		},
+		Compute: ComputeConfig{
+			TaskTimeout:           5 * time.Minute,
+			MaxOutputSize:         1 << 30, // 1 GB
+			CancelGrace:           10 * time.Second,
+			MaxRetainedWorkspaces: 20,
+		},
+		Resilience: ResilienceConfig{
+			Mode:              "balanced",
+			HeartbeatInterval: 1 * time.Second,
+			SuspicionTimeout:  5 * time.Second,
+			TaskRetries:       2,
+			DeadLetter:        true,
+		},
+		Metrics: MetricsConfig{
+			Enabled: true,
+		},
+	}
+}
+
+// ConfigPath returns the path to the config file inside the data directory.
+func ConfigPath() string {
+	return filepath.Join(DefaultDataDir(), "ziggurat.yaml")
+}
+
+// LoadConfig reads a YAML config file and merges it over defaults.
+// If path is empty, it searches: ./ziggurat.yaml then ~/.ziggurat/ziggurat.yaml.
+// If neither exists, bare defaults are returned (single-node LAN operation).
+func LoadConfig(path string) (*Config, error) {
+	cfg := DefaultConfig()
+
+	if path == "" {
+		// 1. Current directory.
+		if _, err := os.Stat("ziggurat.yaml"); err == nil {
+			path = "ziggurat.yaml"
+		} else if p := ConfigPath(); fileExists(p) {
+			// 2. Data directory (~/.ziggurat/ziggurat.yaml).
+			path = p
+		} else {
+			// No config file anywhere — defaults are fine.
+			return cfg, nil
+		}
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read config %s: %w", path, err)
+	}
+
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		return nil, fmt.Errorf("parse config %s: %w", path, err)
+	}
+
+	// Apply ZIGGURAT_ADDR env var for client connection.
+	if addr := os.Getenv("ZIGGURAT_ADDR"); addr != "" && cfg.Client.Addr == "" {
+		cfg.Client.Addr = addr
+	}
+
+	return cfg, nil
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}

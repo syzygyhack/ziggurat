@@ -1,0 +1,51 @@
+# Ziggurat configuration example.
+# Copy to ziggurat.yaml and adjust as needed.
+# All values shown are the defaults.
+
+node:
+  # name: ""                 # Human-readable node name (auto-generated if empty)
+  # tags: []                 # Presence flags for task routing (e.g. ["gpu", "python3"])
+  # capabilities: {}         # Typed key-value overrides (e.g. python.version: "3.12")
+                              # Auto-detected: os, arch, cpu.cores, mem.total, disk.avail,
+                              # hostname, gpu.count, gpu.model, gpu.vram, gpu.cuda, gpu.driver
+  data_dir: ~/.ziggurat       # Root directory for all persistent data
+
+network:
+  bind: 0.0.0.0
+  http_port: 7100
+  grpc_port: 7101             # Reserved for Phase 0b cluster communication
+  # advertise: ""             # Address other nodes use to reach this node
+
+# client:
+#   addr: "127.0.0.1:7100"   # Override with ZIGGURAT_ADDR env var
+
+cluster:
+  discovery: auto             # auto | static | manual
+  # seeds: []                 # Seed nodes for static discovery
+  name: default               # Cluster name for mDNS isolation
+
+storage:
+  # data_dir: ""              # Override store directory (default: <node.data_dir>/store)
+  replication_factor: 2
+  tier_thresholds:
+    medium: 1048576           # 1 MB
+    large: 67108864           # 64 MB
+  gc_grace_period: 1h
+
+compute:
+  # concurrency: 0            # Max concurrent tasks (0 = num CPUs)
+  task_timeout: 5m
+  max_output_size: 1073741824 # 1 GB
+  cancel_grace: 10s
+  # workspace_dir: ""         # Override workspace location
+  max_retained_workspaces: 20
+
+resilience:
+  mode: balanced              # relaxed | balanced | strict
+  heartbeat_interval: 1s
+  suspicion_timeout: 5s
+  task_retries: 2
+  dead_letter: true
+
+metrics:
+  enabled: true

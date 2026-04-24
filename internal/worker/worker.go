@@ -1,0 +1,131 @@
+package worker
+
+import (
+	"context"
+	"log/slog"
+	"runtime"
+	"sync"
+	"time"
+
+	"github.com/syzygyhack/ziggurat/internal/config"
+	"github.com/syzygyhack/ziggurat/internal/coord"
+	"github.com/syzygyhack/ziggurat/internal/metrics"
+	"github.com/syzygyhack/ziggurat/internal/model"
+	"github.com/syzygyhack/ziggurat/internal/store"
+)
+
+// Worker executes tasks in isolated workspaces.
+type Worker struct {
+	nodeID string
+	tags   []string
+	caps   map[string]string
+	store  *store.Store
+	coord  *coord.Coordinator
+	cfg    config.ComputeConfig
+	log    *slog.Logger
+}
+
+// New creates a Worker.
+func New(nodeID string, tags []string, caps map[string]string, s *store.Store, c *coord.Coordinator, cfg config.ComputeConfig, log *slog.Logger) *Worker {
+	return &Worker{
+		nodeID: nodeID,
+		tags:   tags,
+		caps:   caps,
+		store:  s,
+		coord:  c,
+		cfg:    cfg,
+		log:    log,
+	}
+}
+
+// Run starts the worker loop, polling the coordinator for tasks.
+// Respects compute.concurrency: launches up to cfg.Concurrency goroutines.
+func (w *Worker) Run(ctx context.Context) {
+	concurrency := w.cfg.Concurrency
+	if concurrency <= 0 {
+		concurrency = runtime.GOMAXPROCS(0)
+	}
+
+	sem := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
+
+	for {
+		select {
+		case <-ctx.Done():
+			wg.Wait()
+			return
+		default:
+		}
+
+		task := w.coord.Dequeue(w.tags, w.caps)
+		if task == nil {
+			// No work available, back off.
+			select {
+			case <-ctx.Done():
+				wg.Wait()
+				return
+			case <-time.After(100 * time.Millisecond):
+				continue
+			}
+		}
+
+		// Acquire concurrency slot.
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			wg.Wait()
+			return
+		}
+
+		wg.Add(1)
+		go func(t *model.Task) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			w.execute(ctx, t)
+		}(task)
+	}
+}
+
+func (w *Worker) execute(ctx context.Context, task *model.Task) {
+	timeout := task.Config.Timeout.Duration()
+	if timeout == 0 {
+		timeout = w.cfg.TaskTimeout
+	}
+
+	execCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	// Register cancel BEFORE MarkRunning so a concurrent Cancel() that
+	// sees RUNNING can always find the cancel function.
+	w.coord.RegisterCancel(task.ID, cancel)
+	defer w.coord.UnregisterCancel(task.ID)
+
+	// MarkRunning checks if the task was cancelled between Dequeue and now.
+	// If cancelled, skip execution.
+	if !w.coord.MarkRunning(task.ID, w.nodeID) {
+		w.log.Info("task cancelled before execution", "id", task.ID)
+		return
+	}
+
+	metrics.WorkersActive.Inc()
+	result := Execute(execCtx, task, w.store, w.cfg, w.log)
+	metrics.WorkersActive.Dec()
+
+	if err := w.coord.Complete(
+		task.ID,
+		result.ExitCode,
+		result.Stdout,
+		result.Stderr,
+		result.Error,
+		result.OutputRef,
+		result.OutputBytes,
+	); err != nil {
+		w.log.Error("failed to report task completion", "id", task.ID, "err", err)
+	}
+
+	if result.ExitCode == 0 {
+		w.log.Info("task completed", "id", task.ID, "wall", result.WallTime)
+	} else {
+		w.log.Warn("task failed", "id", task.ID, "exit", result.ExitCode, "err", result.Error)
+	}
+}
