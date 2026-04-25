@@ -997,6 +997,9 @@ ziggurat env prune                   # Remove stale envs                     [1.
 
 ziggurat health                      # Health check (JSON)                   [0a]
 ziggurat metrics                     # Key metrics summary                   [1]
+ziggurat top                         # Live dashboard (nodes, tasks, load)   [1.5]
+  --interval, -n <dur>              # Refresh interval (default 2s)
+  --once                            # Print once and exit
 ziggurat benchmark                   # CPU, memory, disk, GPU, peer latency  [1.5]
   --skip-network                    # Skip peer latency probes
 ziggurat version                     # Binary version + build info           [0a]

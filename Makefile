@@ -1,5 +1,6 @@
 # Ziggurat Makefile
-# Requires: Go 1.24+, Linux/WSL
+# Requires: Go 1.24+
+# Cross-compile for Windows: make windows
 
 BINARY := ziggurat
 INSTALL_DIR := $(HOME)/.local/bin
@@ -7,12 +8,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 LDFLAGS := -ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT)"
 
-# Ensure we're on Linux
-ifneq ($(shell uname -s),Linux)
-$(error This Makefile requires Linux/WSL)
-endif
-
-.PHONY: build install test test-race coverage fmt vet lint tidy proto clean help
+.PHONY: build install test test-race coverage fmt vet lint tidy proto clean windows help
 
 build:
 	go build $(LDFLAGS) -o $(BINARY) ./cmd/ziggurat/
@@ -57,8 +53,11 @@ proto:
 		-I proto proto/ziggurat.proto
 	@echo "Regenerated protobuf code"
 
+windows:
+	GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o $(BINARY).exe ./cmd/ziggurat/
+
 clean:
-	rm -f $(BINARY)
+	rm -f $(BINARY) $(BINARY).exe
 	rm -f coverage.out coverage.html
 	go clean
 
@@ -76,5 +75,6 @@ help:
 	@echo "  lint       Run golangci-lint (falls back to go vet)"
 	@echo "  tidy       Tidy go.mod dependencies"
 	@echo "  proto      Regenerate protobuf Go code"
+	@echo "  windows    Cross-compile ziggurat.exe for Windows amd64"
 	@echo "  clean      Remove build artifacts"
 	@echo "  help       Show this help"

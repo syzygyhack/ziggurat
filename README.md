@@ -150,6 +150,8 @@ Connection resolution for client commands: `--addr` flag > `ZIGGURAT_ADDR` env >
 ### Diagnostics
 | Command | Description |
 |---------|-------------|
+| `ziggurat top` | Live cluster dashboard (nodes, tasks, load) |
+| `ziggurat top --once` | Single snapshot, no refresh |
 | `ziggurat benchmark` | CPU, memory, disk I/O, GPU detection, and peer latency benchmarks |
 | `ziggurat benchmark --skip-network` | Local benchmarks only |
 
