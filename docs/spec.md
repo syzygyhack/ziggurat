@@ -997,7 +997,7 @@ ziggurat env prune                   # Remove stale envs                     [1.
 
 ziggurat health                      # Health check (JSON)                   [0a]
 ziggurat metrics                     # Key metrics summary                   [1]
-ziggurat benchmark                   # CPU, memory, disk, peer latency       [1.5]
+ziggurat benchmark                   # CPU, memory, disk, GPU, peer latency  [1.5]
   --skip-network                    # Skip peer latency probes
 ziggurat version                     # Binary version + build info           [0a]
 ```

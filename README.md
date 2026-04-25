@@ -150,7 +150,7 @@ Connection resolution for client commands: `--addr` flag > `ZIGGURAT_ADDR` env >
 ### Diagnostics
 | Command | Description |
 |---------|-------------|
-| `ziggurat benchmark` | CPU, memory, disk I/O, and peer latency benchmarks |
+| `ziggurat benchmark` | CPU, memory, disk I/O, GPU detection, and peer latency benchmarks |
 | `ziggurat benchmark --skip-network` | Local benchmarks only |
 
 All commands support `--json` for machine-parseable output.
@@ -162,7 +162,7 @@ ziggurat/
   cmd/ziggurat/        # main entry point
   internal/
     api/               # HTTP REST API (chi router)
-    benchmark/         # Local + network benchmarks
+    benchmark/         # Local + network benchmarks, GPU detection
     cluster/           # Gossip membership (memberlist)
     cmd/               # CLI commands (cobra)
     config/            # YAML config loading + defaults
