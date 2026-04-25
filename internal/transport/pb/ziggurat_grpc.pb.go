@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.1
 // - protoc             v4.25.1
-// source: proto/ziggurat.proto
+// source: ziggurat.proto
 
 package pb
 
@@ -254,5 +254,5 @@ var ZigguratNode_ServiceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 	},
-	Metadata: "proto/ziggurat.proto",
+	Metadata: "ziggurat.proto",
 }

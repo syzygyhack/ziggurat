@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        v4.25.1
-// source: proto/ziggurat.proto
+// source: ziggurat.proto
 
 package pb
 
@@ -40,13 +40,14 @@ type DispatchTaskRequest struct {
 	Image         string                 `protobuf:"bytes,15,opt,name=image,proto3" json:"image,omitempty"`
 	Attempt       int32                  `protobuf:"varint,16,opt,name=attempt,proto3" json:"attempt,omitempty"`
 	Environment   *TaskEnvironment       `protobuf:"bytes,17,opt,name=environment,proto3" json:"environment,omitempty"` // persistent env config (optional)
+	Resources     *TaskResources         `protobuf:"bytes,18,opt,name=resources,proto3" json:"resources,omitempty"`     // resource requests (optional)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DispatchTaskRequest) Reset() {
 	*x = DispatchTaskRequest{}
-	mi := &file_proto_ziggurat_proto_msgTypes[0]
+	mi := &file_ziggurat_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -58,7 +59,7 @@ func (x *DispatchTaskRequest) String() string {
 func (*DispatchTaskRequest) ProtoMessage() {}
 
 func (x *DispatchTaskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ziggurat_proto_msgTypes[0]
+	mi := &file_ziggurat_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -71,7 +72,7 @@ func (x *DispatchTaskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DispatchTaskRequest.ProtoReflect.Descriptor instead.
 func (*DispatchTaskRequest) Descriptor() ([]byte, []int) {
-	return file_proto_ziggurat_proto_rawDescGZIP(), []int{0}
+	return file_ziggurat_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *DispatchTaskRequest) GetId() string {
@@ -193,6 +194,74 @@ func (x *DispatchTaskRequest) GetEnvironment() *TaskEnvironment {
 	return nil
 }
 
+func (x *DispatchTaskRequest) GetResources() *TaskResources {
+	if x != nil {
+		return x.Resources
+	}
+	return nil
+}
+
+// TaskResources specifies resource requests for scheduler admission.
+type TaskResources struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Memory        int64                  `protobuf:"varint,1,opt,name=memory,proto3" json:"memory,omitempty"`                     // bytes, 0 = no requirement
+	CpuCores      int32                  `protobuf:"varint,2,opt,name=cpu_cores,json=cpuCores,proto3" json:"cpu_cores,omitempty"` // logical cores, 0 = no requirement
+	Gpus          int32                  `protobuf:"varint,3,opt,name=gpus,proto3" json:"gpus,omitempty"`                         // GPU devices, 0 = no requirement
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TaskResources) Reset() {
+	*x = TaskResources{}
+	mi := &file_ziggurat_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TaskResources) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TaskResources) ProtoMessage() {}
+
+func (x *TaskResources) ProtoReflect() protoreflect.Message {
+	mi := &file_ziggurat_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TaskResources.ProtoReflect.Descriptor instead.
+func (*TaskResources) Descriptor() ([]byte, []int) {
+	return file_ziggurat_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *TaskResources) GetMemory() int64 {
+	if x != nil {
+		return x.Memory
+	}
+	return 0
+}
+
+func (x *TaskResources) GetCpuCores() int32 {
+	if x != nil {
+		return x.CpuCores
+	}
+	return 0
+}
+
+func (x *TaskResources) GetGpus() int32 {
+	if x != nil {
+		return x.Gpus
+	}
+	return 0
+}
+
 // TaskEnvironment configures a persistent, reusable environment for a task.
 type TaskEnvironment struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -205,7 +274,7 @@ type TaskEnvironment struct {
 
 func (x *TaskEnvironment) Reset() {
 	*x = TaskEnvironment{}
-	mi := &file_proto_ziggurat_proto_msgTypes[1]
+	mi := &file_ziggurat_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -217,7 +286,7 @@ func (x *TaskEnvironment) String() string {
 func (*TaskEnvironment) ProtoMessage() {}
 
 func (x *TaskEnvironment) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ziggurat_proto_msgTypes[1]
+	mi := &file_ziggurat_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -230,7 +299,7 @@ func (x *TaskEnvironment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TaskEnvironment.ProtoReflect.Descriptor instead.
 func (*TaskEnvironment) Descriptor() ([]byte, []int) {
-	return file_proto_ziggurat_proto_rawDescGZIP(), []int{1}
+	return file_ziggurat_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *TaskEnvironment) GetName() string {
@@ -265,7 +334,7 @@ type DispatchTaskResponse struct {
 
 func (x *DispatchTaskResponse) Reset() {
 	*x = DispatchTaskResponse{}
-	mi := &file_proto_ziggurat_proto_msgTypes[2]
+	mi := &file_ziggurat_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -277,7 +346,7 @@ func (x *DispatchTaskResponse) String() string {
 func (*DispatchTaskResponse) ProtoMessage() {}
 
 func (x *DispatchTaskResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ziggurat_proto_msgTypes[2]
+	mi := &file_ziggurat_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -290,7 +359,7 @@ func (x *DispatchTaskResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DispatchTaskResponse.ProtoReflect.Descriptor instead.
 func (*DispatchTaskResponse) Descriptor() ([]byte, []int) {
-	return file_proto_ziggurat_proto_rawDescGZIP(), []int{2}
+	return file_ziggurat_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *DispatchTaskResponse) GetAccepted() bool {
@@ -323,7 +392,7 @@ type TaskResultRequest struct {
 
 func (x *TaskResultRequest) Reset() {
 	*x = TaskResultRequest{}
-	mi := &file_proto_ziggurat_proto_msgTypes[3]
+	mi := &file_ziggurat_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -335,7 +404,7 @@ func (x *TaskResultRequest) String() string {
 func (*TaskResultRequest) ProtoMessage() {}
 
 func (x *TaskResultRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ziggurat_proto_msgTypes[3]
+	mi := &file_ziggurat_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -348,7 +417,7 @@ func (x *TaskResultRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TaskResultRequest.ProtoReflect.Descriptor instead.
 func (*TaskResultRequest) Descriptor() ([]byte, []int) {
-	return file_proto_ziggurat_proto_rawDescGZIP(), []int{3}
+	return file_ziggurat_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *TaskResultRequest) GetTaskId() string {
@@ -374,7 +443,7 @@ type TaskResultResponse struct {
 
 func (x *TaskResultResponse) Reset() {
 	*x = TaskResultResponse{}
-	mi := &file_proto_ziggurat_proto_msgTypes[4]
+	mi := &file_ziggurat_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -386,7 +455,7 @@ func (x *TaskResultResponse) String() string {
 func (*TaskResultResponse) ProtoMessage() {}
 
 func (x *TaskResultResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ziggurat_proto_msgTypes[4]
+	mi := &file_ziggurat_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -399,7 +468,7 @@ func (x *TaskResultResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TaskResultResponse.ProtoReflect.Descriptor instead.
 func (*TaskResultResponse) Descriptor() ([]byte, []int) {
-	return file_proto_ziggurat_proto_rawDescGZIP(), []int{4}
+	return file_ziggurat_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *TaskResultResponse) GetTaskId() string {
@@ -467,7 +536,7 @@ type PullShardRequest struct {
 
 func (x *PullShardRequest) Reset() {
 	*x = PullShardRequest{}
-	mi := &file_proto_ziggurat_proto_msgTypes[5]
+	mi := &file_ziggurat_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -479,7 +548,7 @@ func (x *PullShardRequest) String() string {
 func (*PullShardRequest) ProtoMessage() {}
 
 func (x *PullShardRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ziggurat_proto_msgTypes[5]
+	mi := &file_ziggurat_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -492,7 +561,7 @@ func (x *PullShardRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PullShardRequest.ProtoReflect.Descriptor instead.
 func (*PullShardRequest) Descriptor() ([]byte, []int) {
-	return file_proto_ziggurat_proto_rawDescGZIP(), []int{5}
+	return file_ziggurat_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *PullShardRequest) GetHash() string {
@@ -511,7 +580,7 @@ type ShardData struct {
 
 func (x *ShardData) Reset() {
 	*x = ShardData{}
-	mi := &file_proto_ziggurat_proto_msgTypes[6]
+	mi := &file_ziggurat_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -523,7 +592,7 @@ func (x *ShardData) String() string {
 func (*ShardData) ProtoMessage() {}
 
 func (x *ShardData) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ziggurat_proto_msgTypes[6]
+	mi := &file_ziggurat_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -536,7 +605,7 @@ func (x *ShardData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShardData.ProtoReflect.Descriptor instead.
 func (*ShardData) Descriptor() ([]byte, []int) {
-	return file_proto_ziggurat_proto_rawDescGZIP(), []int{6}
+	return file_ziggurat_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ShardData) GetData() []byte {
@@ -559,7 +628,7 @@ type PushShardMsg struct {
 
 func (x *PushShardMsg) Reset() {
 	*x = PushShardMsg{}
-	mi := &file_proto_ziggurat_proto_msgTypes[7]
+	mi := &file_ziggurat_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -571,7 +640,7 @@ func (x *PushShardMsg) String() string {
 func (*PushShardMsg) ProtoMessage() {}
 
 func (x *PushShardMsg) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ziggurat_proto_msgTypes[7]
+	mi := &file_ziggurat_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -584,7 +653,7 @@ func (x *PushShardMsg) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PushShardMsg.ProtoReflect.Descriptor instead.
 func (*PushShardMsg) Descriptor() ([]byte, []int) {
-	return file_proto_ziggurat_proto_rawDescGZIP(), []int{7}
+	return file_ziggurat_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *PushShardMsg) GetPayload() isPushShardMsg_Payload {
@@ -638,7 +707,7 @@ type PushShardHeader struct {
 
 func (x *PushShardHeader) Reset() {
 	*x = PushShardHeader{}
-	mi := &file_proto_ziggurat_proto_msgTypes[8]
+	mi := &file_ziggurat_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -650,7 +719,7 @@ func (x *PushShardHeader) String() string {
 func (*PushShardHeader) ProtoMessage() {}
 
 func (x *PushShardHeader) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ziggurat_proto_msgTypes[8]
+	mi := &file_ziggurat_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -663,7 +732,7 @@ func (x *PushShardHeader) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PushShardHeader.ProtoReflect.Descriptor instead.
 func (*PushShardHeader) Descriptor() ([]byte, []int) {
-	return file_proto_ziggurat_proto_rawDescGZIP(), []int{8}
+	return file_ziggurat_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *PushShardHeader) GetHash() string {
@@ -690,7 +759,7 @@ type PushShardResponse struct {
 
 func (x *PushShardResponse) Reset() {
 	*x = PushShardResponse{}
-	mi := &file_proto_ziggurat_proto_msgTypes[9]
+	mi := &file_ziggurat_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -702,7 +771,7 @@ func (x *PushShardResponse) String() string {
 func (*PushShardResponse) ProtoMessage() {}
 
 func (x *PushShardResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_ziggurat_proto_msgTypes[9]
+	mi := &file_ziggurat_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -715,7 +784,7 @@ func (x *PushShardResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PushShardResponse.ProtoReflect.Descriptor instead.
 func (*PushShardResponse) Descriptor() ([]byte, []int) {
-	return file_proto_ziggurat_proto_rawDescGZIP(), []int{9}
+	return file_ziggurat_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *PushShardResponse) GetOk() bool {
@@ -732,11 +801,11 @@ func (x *PushShardResponse) GetError() string {
 	return ""
 }
 
-var File_proto_ziggurat_proto protoreflect.FileDescriptor
+var File_ziggurat_proto protoreflect.FileDescriptor
 
-const file_proto_ziggurat_proto_rawDesc = "" +
+const file_ziggurat_proto_rawDesc = "" +
 	"\n" +
-	"\x14proto/ziggurat.proto\x12\bziggurat\"\xca\x06\n" +
+	"\x0eziggurat.proto\x12\bziggurat\"\x81\a\n" +
 	"\x13DispatchTaskRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\acommand\x18\x02 \x03(\tR\acommand\x128\n" +
@@ -758,7 +827,8 @@ const file_proto_ziggurat_proto_rawDesc = "" +
 	"\x0ekeep_workspace\x18\x0e \x01(\bR\rkeepWorkspace\x12\x14\n" +
 	"\x05image\x18\x0f \x01(\tR\x05image\x12\x18\n" +
 	"\aattempt\x18\x10 \x01(\x05R\aattempt\x12;\n" +
-	"\venvironment\x18\x11 \x01(\v2\x19.ziggurat.TaskEnvironmentR\venvironment\x1a6\n" +
+	"\venvironment\x18\x11 \x01(\v2\x19.ziggurat.TaskEnvironmentR\venvironment\x125\n" +
+	"\tresources\x18\x12 \x01(\v2\x17.ziggurat.TaskResourcesR\tresources\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a<\n" +
@@ -767,7 +837,11 @@ const file_proto_ziggurat_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a9\n" +
 	"\vParamsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"]\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"X\n" +
+	"\rTaskResources\x12\x16\n" +
+	"\x06memory\x18\x01 \x01(\x03R\x06memory\x12\x1b\n" +
+	"\tcpu_cores\x18\x02 \x01(\x05R\bcpuCores\x12\x12\n" +
+	"\x04gpus\x18\x03 \x01(\x05R\x04gpus\"]\n" +
 	"\x0fTaskEnvironment\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05setup\x18\x02 \x03(\tR\x05setup\x12 \n" +
@@ -812,60 +886,62 @@ const file_proto_ziggurat_proto_rawDesc = "" +
 	"\tPushShard\x12\x16.ziggurat.PushShardMsg\x1a\x1b.ziggurat.PushShardResponse(\x01B6Z4github.com/syzygyhack/ziggurat/internal/transport/pbb\x06proto3"
 
 var (
-	file_proto_ziggurat_proto_rawDescOnce sync.Once
-	file_proto_ziggurat_proto_rawDescData []byte
+	file_ziggurat_proto_rawDescOnce sync.Once
+	file_ziggurat_proto_rawDescData []byte
 )
 
-func file_proto_ziggurat_proto_rawDescGZIP() []byte {
-	file_proto_ziggurat_proto_rawDescOnce.Do(func() {
-		file_proto_ziggurat_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto_ziggurat_proto_rawDesc), len(file_proto_ziggurat_proto_rawDesc)))
+func file_ziggurat_proto_rawDescGZIP() []byte {
+	file_ziggurat_proto_rawDescOnce.Do(func() {
+		file_ziggurat_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_ziggurat_proto_rawDesc), len(file_ziggurat_proto_rawDesc)))
 	})
-	return file_proto_ziggurat_proto_rawDescData
+	return file_ziggurat_proto_rawDescData
 }
 
-var file_proto_ziggurat_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
-var file_proto_ziggurat_proto_goTypes = []any{
+var file_ziggurat_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_ziggurat_proto_goTypes = []any{
 	(*DispatchTaskRequest)(nil),  // 0: ziggurat.DispatchTaskRequest
-	(*TaskEnvironment)(nil),      // 1: ziggurat.TaskEnvironment
-	(*DispatchTaskResponse)(nil), // 2: ziggurat.DispatchTaskResponse
-	(*TaskResultRequest)(nil),    // 3: ziggurat.TaskResultRequest
-	(*TaskResultResponse)(nil),   // 4: ziggurat.TaskResultResponse
-	(*PullShardRequest)(nil),     // 5: ziggurat.PullShardRequest
-	(*ShardData)(nil),            // 6: ziggurat.ShardData
-	(*PushShardMsg)(nil),         // 7: ziggurat.PushShardMsg
-	(*PushShardHeader)(nil),      // 8: ziggurat.PushShardHeader
-	(*PushShardResponse)(nil),    // 9: ziggurat.PushShardResponse
-	nil,                          // 10: ziggurat.DispatchTaskRequest.EnvEntry
-	nil,                          // 11: ziggurat.DispatchTaskRequest.InputRefsEntry
-	nil,                          // 12: ziggurat.DispatchTaskRequest.ParamsEntry
+	(*TaskResources)(nil),        // 1: ziggurat.TaskResources
+	(*TaskEnvironment)(nil),      // 2: ziggurat.TaskEnvironment
+	(*DispatchTaskResponse)(nil), // 3: ziggurat.DispatchTaskResponse
+	(*TaskResultRequest)(nil),    // 4: ziggurat.TaskResultRequest
+	(*TaskResultResponse)(nil),   // 5: ziggurat.TaskResultResponse
+	(*PullShardRequest)(nil),     // 6: ziggurat.PullShardRequest
+	(*ShardData)(nil),            // 7: ziggurat.ShardData
+	(*PushShardMsg)(nil),         // 8: ziggurat.PushShardMsg
+	(*PushShardHeader)(nil),      // 9: ziggurat.PushShardHeader
+	(*PushShardResponse)(nil),    // 10: ziggurat.PushShardResponse
+	nil,                          // 11: ziggurat.DispatchTaskRequest.EnvEntry
+	nil,                          // 12: ziggurat.DispatchTaskRequest.InputRefsEntry
+	nil,                          // 13: ziggurat.DispatchTaskRequest.ParamsEntry
 }
-var file_proto_ziggurat_proto_depIdxs = []int32{
-	10, // 0: ziggurat.DispatchTaskRequest.env:type_name -> ziggurat.DispatchTaskRequest.EnvEntry
-	11, // 1: ziggurat.DispatchTaskRequest.input_refs:type_name -> ziggurat.DispatchTaskRequest.InputRefsEntry
-	12, // 2: ziggurat.DispatchTaskRequest.params:type_name -> ziggurat.DispatchTaskRequest.ParamsEntry
-	1,  // 3: ziggurat.DispatchTaskRequest.environment:type_name -> ziggurat.TaskEnvironment
-	8,  // 4: ziggurat.PushShardMsg.header:type_name -> ziggurat.PushShardHeader
-	0,  // 5: ziggurat.ZigguratNode.DispatchTask:input_type -> ziggurat.DispatchTaskRequest
-	3,  // 6: ziggurat.ZigguratNode.TaskResult:input_type -> ziggurat.TaskResultRequest
-	5,  // 7: ziggurat.ZigguratNode.PullShard:input_type -> ziggurat.PullShardRequest
-	7,  // 8: ziggurat.ZigguratNode.PushShard:input_type -> ziggurat.PushShardMsg
-	2,  // 9: ziggurat.ZigguratNode.DispatchTask:output_type -> ziggurat.DispatchTaskResponse
-	4,  // 10: ziggurat.ZigguratNode.TaskResult:output_type -> ziggurat.TaskResultResponse
-	6,  // 11: ziggurat.ZigguratNode.PullShard:output_type -> ziggurat.ShardData
-	9,  // 12: ziggurat.ZigguratNode.PushShard:output_type -> ziggurat.PushShardResponse
-	9,  // [9:13] is the sub-list for method output_type
-	5,  // [5:9] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+var file_ziggurat_proto_depIdxs = []int32{
+	11, // 0: ziggurat.DispatchTaskRequest.env:type_name -> ziggurat.DispatchTaskRequest.EnvEntry
+	12, // 1: ziggurat.DispatchTaskRequest.input_refs:type_name -> ziggurat.DispatchTaskRequest.InputRefsEntry
+	13, // 2: ziggurat.DispatchTaskRequest.params:type_name -> ziggurat.DispatchTaskRequest.ParamsEntry
+	2,  // 3: ziggurat.DispatchTaskRequest.environment:type_name -> ziggurat.TaskEnvironment
+	1,  // 4: ziggurat.DispatchTaskRequest.resources:type_name -> ziggurat.TaskResources
+	9,  // 5: ziggurat.PushShardMsg.header:type_name -> ziggurat.PushShardHeader
+	0,  // 6: ziggurat.ZigguratNode.DispatchTask:input_type -> ziggurat.DispatchTaskRequest
+	4,  // 7: ziggurat.ZigguratNode.TaskResult:input_type -> ziggurat.TaskResultRequest
+	6,  // 8: ziggurat.ZigguratNode.PullShard:input_type -> ziggurat.PullShardRequest
+	8,  // 9: ziggurat.ZigguratNode.PushShard:input_type -> ziggurat.PushShardMsg
+	3,  // 10: ziggurat.ZigguratNode.DispatchTask:output_type -> ziggurat.DispatchTaskResponse
+	5,  // 11: ziggurat.ZigguratNode.TaskResult:output_type -> ziggurat.TaskResultResponse
+	7,  // 12: ziggurat.ZigguratNode.PullShard:output_type -> ziggurat.ShardData
+	10, // 13: ziggurat.ZigguratNode.PushShard:output_type -> ziggurat.PushShardResponse
+	10, // [10:14] is the sub-list for method output_type
+	6,  // [6:10] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
-func init() { file_proto_ziggurat_proto_init() }
-func file_proto_ziggurat_proto_init() {
-	if File_proto_ziggurat_proto != nil {
+func init() { file_ziggurat_proto_init() }
+func file_ziggurat_proto_init() {
+	if File_ziggurat_proto != nil {
 		return
 	}
-	file_proto_ziggurat_proto_msgTypes[7].OneofWrappers = []any{
+	file_ziggurat_proto_msgTypes[8].OneofWrappers = []any{
 		(*PushShardMsg_Header)(nil),
 		(*PushShardMsg_Data)(nil),
 	}
@@ -873,17 +949,17 @@ func file_proto_ziggurat_proto_init() {
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_ziggurat_proto_rawDesc), len(file_proto_ziggurat_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ziggurat_proto_rawDesc), len(file_ziggurat_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_proto_ziggurat_proto_goTypes,
-		DependencyIndexes: file_proto_ziggurat_proto_depIdxs,
-		MessageInfos:      file_proto_ziggurat_proto_msgTypes,
+		GoTypes:           file_ziggurat_proto_goTypes,
+		DependencyIndexes: file_ziggurat_proto_depIdxs,
+		MessageInfos:      file_ziggurat_proto_msgTypes,
 	}.Build()
-	File_proto_ziggurat_proto = out.File
-	file_proto_ziggurat_proto_goTypes = nil
-	file_proto_ziggurat_proto_depIdxs = nil
+	File_ziggurat_proto = out.File
+	file_ziggurat_proto_goTypes = nil
+	file_ziggurat_proto_depIdxs = nil
 }

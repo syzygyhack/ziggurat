@@ -67,7 +67,7 @@ func fetchTop() topSnapshot {
 
 func renderTop(snap topSnapshot, interactive bool) {
 	if interactive {
-		fmt.Print("\033[H\033[2J")
+		fmt.Print("\033[H") // cursor home (no clear — overwrite in place)
 	}
 
 	if snap.err != nil {
@@ -228,7 +228,7 @@ func renderTop(snap topSnapshot, interactive bool) {
 	}
 
 	if interactive {
-		fmt.Printf("\nRefreshing every %s. Ctrl+C to quit.", topInterval)
+		fmt.Printf("\nRefreshing every %s. Ctrl+C to quit.\033[J", topInterval) // \033[J clears from cursor to end of screen
 	}
 }
 

@@ -139,3 +139,43 @@ func TestQueue_ConstraintMatching(t *testing.T) {
 		t.Fatalf("expected gpu-heavy task, got %v", got)
 	}
 }
+
+func TestQueue_GPUResourceMatching(t *testing.T) {
+	q := NewQueue()
+
+	// Task requires 2 GPUs.
+	gpuTask := &model.Task{
+		ID:        "needs-gpu",
+		Resources: model.ResourceReq{GPUs: 2},
+	}
+	// Task with no GPU requirement.
+	cpuTask := &model.Task{ID: "cpu-only"}
+
+	q.Push(gpuTask)
+	q.Push(cpuTask)
+
+	// Worker with 1 GPU can't satisfy the 2-GPU task.
+	caps1 := map[string]string{"gpu.count": "1"}
+	got := q.Pop(nil, caps1)
+	if got == nil || got.ID != "cpu-only" {
+		t.Fatalf("expected cpu-only task, got %v", got)
+	}
+
+	// GPU task still in queue.
+	if q.Len() != 1 {
+		t.Fatalf("expected 1 task in queue, got %d", q.Len())
+	}
+
+	// Worker with no GPUs can't satisfy it.
+	got = q.Pop(nil, map[string]string{})
+	if got != nil {
+		t.Fatalf("expected nil (no GPU worker), got %v", got.ID)
+	}
+
+	// Worker with 4 GPUs satisfies the requirement.
+	caps4 := map[string]string{"gpu.count": "4"}
+	got = q.Pop(nil, caps4)
+	if got == nil || got.ID != "needs-gpu" {
+		t.Fatalf("expected needs-gpu task, got %v", got)
+	}
+}

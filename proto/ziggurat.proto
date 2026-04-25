@@ -46,6 +46,14 @@ message DispatchTaskRequest {
   string image = 15;
   int32 attempt = 16;
   TaskEnvironment environment = 17;     // persistent env config (optional)
+  TaskResources resources = 18;         // resource requests (optional)
+}
+
+// TaskResources specifies resource requests for scheduler admission.
+message TaskResources {
+  int64 memory = 1;     // bytes, 0 = no requirement
+  int32 cpu_cores = 2;  // logical cores, 0 = no requirement
+  int32 gpus = 3;       // GPU devices, 0 = no requirement
 }
 
 // TaskEnvironment configures a persistent, reusable environment for a task.

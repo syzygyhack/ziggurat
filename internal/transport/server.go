@@ -219,6 +219,13 @@ func protoToTask(req *pb.DispatchTaskRequest) *model.Task {
 			Fingerprint: e.Fingerprint,
 		}
 	}
+	if r := req.Resources; r != nil {
+		t.Resources = model.ResourceReq{
+			Memory:   r.Memory,
+			CPUCores: int(r.CpuCores),
+			GPUs:     int(r.Gpus),
+		}
+	}
 	return t
 }
 
@@ -247,6 +254,13 @@ func taskToProto(t *model.Task) *pb.DispatchTaskRequest {
 			Name:        e.Name,
 			Setup:       e.Setup,
 			Fingerprint: e.Fingerprint,
+		}
+	}
+	if r := t.Resources; r.Memory > 0 || r.CPUCores > 0 || r.GPUs > 0 {
+		req.Resources = &pb.TaskResources{
+			Memory:   r.Memory,
+			CpuCores: int32(r.CPUCores),
+			Gpus:     int32(r.GPUs),
 		}
 	}
 	return req

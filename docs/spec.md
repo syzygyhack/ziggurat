@@ -246,6 +246,7 @@ The contract between Ziggurat and a task is pure environment:
 | `ZIGGURAT_ENV` | Persistent environment directory (only if `environment` is set) |
 | `ZIGGURAT_ENV_NAME` | Environment name (only if `environment` is set) |
 | `VIRTUAL_ENV` | Same as `ZIGGURAT_ENV` (Python venv compatibility) |
+| `CUDA_VISIBLE_DEVICES` | Allocated GPU device indices (only if `--gpus` > 0) |
 
 **The rules**:
 - Read data from `$ZIGGURAT_INPUT/<name>/` (populated from storage before execution)
@@ -608,6 +609,7 @@ type Task struct {
 type ResourceReq struct {
     Memory    int64         // bytes, 0 = no requirement (best-effort)
     CPUCores  int           // logical cores, 0 = no requirement
+    GPUs      int           // GPU devices, 0 = no requirement; sets CUDA_VISIBLE_DEVICES
 }
 
 type TaskConfig struct {
@@ -940,6 +942,7 @@ ziggurat run <command...> [flags]    # Submit a task (exec model)            [0a
   --retries <n>                     # Max retry count
   --memory <size>                   # Memory requirement
   --cpus <n>                        # CPU cores requirement
+  --gpus <n>                        # GPU devices required (sets CUDA_VISIBLE_DEVICES)
   --max-output <size>               # Output size limit
   --wait                            # Block until complete
   --keep-workspace                  # Don't clean up on failure

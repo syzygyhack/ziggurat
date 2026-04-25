@@ -30,7 +30,8 @@ type ExecResult struct {
 
 // Execute runs a task in an isolated workspace. This is the core execution
 // engine: workspace setup -> env resolve -> input fetch -> artifact fetch -> subprocess -> output upload.
-func Execute(ctx context.Context, task *model.Task, s *store.Store, cfg config.ComputeConfig, dataDir string, log *slog.Logger) (result *ExecResult) {
+// gpuDevices holds allocated GPU indices; when non-empty, CUDA_VISIBLE_DEVICES is set.
+func Execute(ctx context.Context, task *model.Task, s *store.Store, cfg config.ComputeConfig, dataDir string, gpuDevices []int, log *slog.Logger) (result *ExecResult) {
 	start := time.Now()
 
 	// 1. Create workspace.
@@ -91,6 +92,9 @@ func Execute(ctx context.Context, task *model.Task, s *store.Store, cfg config.C
 	env := BuildEnv(task, workspace, inputDir, outputDir)
 	if envPath != "" {
 		env = applyEnvPath(env, envPath)
+	}
+	if len(gpuDevices) > 0 {
+		env = append(env, "CUDA_VISIBLE_DEVICES="+FormatDevices(gpuDevices))
 	}
 
 	// 6. Execute command.

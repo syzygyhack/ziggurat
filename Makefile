@@ -48,8 +48,8 @@ tidy:
 	go mod tidy
 
 proto:
-	protoc --go_out=. --go_opt=paths=source_relative \
-		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
+	protoc --go_out=internal/transport/pb --go_opt=paths=source_relative \
+		--go-grpc_out=internal/transport/pb --go-grpc_opt=paths=source_relative \
 		-I proto proto/ziggurat.proto
 	@echo "Regenerated protobuf code"
 

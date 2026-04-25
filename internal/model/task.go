@@ -116,6 +116,7 @@ type Task struct {
 type ResourceReq struct {
 	Memory   int64 `json:"memory,omitempty"`    // bytes, 0 = no requirement
 	CPUCores int   `json:"cpu_cores,omitempty"` // logical cores, 0 = no requirement
+	GPUs     int   `json:"gpus,omitempty"`      // GPU devices, 0 = no requirement
 }
 
 // TaskConfig holds per-task configuration overrides.

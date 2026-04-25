@@ -108,3 +108,33 @@ func TestBuildEnv_NoDuplicateZigguratVars(t *testing.T) {
 		}
 	}
 }
+
+func TestCUDAVisibleDevices_Injected(t *testing.T) {
+	// BuildEnv doesn't inject CUDA_VISIBLE_DEVICES — that's done in Execute.
+	// Test FormatDevices and the env append logic directly.
+	env := BuildEnv(&model.Task{ID: "t1"}, "/ws", "/ws/input", "/ws/output")
+
+	// Simulate what Execute does.
+	gpuDevices := []int{0, 2}
+	env = append(env, "CUDA_VISIBLE_DEVICES="+FormatDevices(gpuDevices))
+
+	found := false
+	for _, e := range env {
+		if e == "CUDA_VISIBLE_DEVICES=0,2" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected CUDA_VISIBLE_DEVICES=0,2 in env")
+	}
+}
+
+func TestCUDAVisibleDevices_NotSetWhenNoGPU(t *testing.T) {
+	env := BuildEnv(&model.Task{ID: "t1"}, "/ws", "/ws/input", "/ws/output")
+
+	for _, e := range env {
+		if strings.HasPrefix(e, "CUDA_VISIBLE_DEVICES=") {
+			t.Errorf("unexpected CUDA_VISIBLE_DEVICES in env: %s", e)
+		}
+	}
+}

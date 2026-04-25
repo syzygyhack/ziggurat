@@ -23,20 +23,22 @@ type Worker struct {
 	coord   *coord.Coordinator
 	cfg     config.ComputeConfig
 	dataDir string // node data directory (for persistent envs)
+	gpuAlloc *GPUAllocator
 	log     *slog.Logger
 }
 
 // New creates a Worker.
 func New(nodeID string, tags []string, caps map[string]string, s *store.Store, c *coord.Coordinator, cfg config.ComputeConfig, dataDir string, log *slog.Logger) *Worker {
 	return &Worker{
-		nodeID:  nodeID,
-		tags:    tags,
-		caps:    caps,
-		store:   s,
-		coord:   c,
-		cfg:     cfg,
-		dataDir: dataDir,
-		log:     log,
+		nodeID:   nodeID,
+		tags:     tags,
+		caps:     caps,
+		store:    s,
+		coord:    c,
+		cfg:      cfg,
+		dataDir:  dataDir,
+		gpuAlloc: NewGPUAllocator(caps),
+		log:      log,
 	}
 }
 
@@ -109,8 +111,22 @@ func (w *Worker) execute(ctx context.Context, task *model.Task) {
 		return
 	}
 
+	// Allocate GPU devices if requested.
+	var gpuDevices []int
+	if task.Resources.GPUs > 0 && w.gpuAlloc != nil {
+		var err error
+		gpuDevices, err = w.gpuAlloc.Allocate(task.Resources.GPUs)
+		if err != nil {
+			w.log.Error("gpu allocation failed", "id", task.ID, "err", err)
+			w.coord.Complete(task.ID, -1, "", "", err.Error(), "", 0)
+			return
+		}
+		defer w.gpuAlloc.Release(gpuDevices)
+		w.log.Info("gpu allocated", "id", task.ID, "devices", gpuDevices)
+	}
+
 	metrics.WorkersActive.Inc()
-	result := Execute(execCtx, task, w.store, w.cfg, w.dataDir, w.log)
+	result := Execute(execCtx, task, w.store, w.cfg, w.dataDir, gpuDevices, w.log)
 	metrics.WorkersActive.Dec()
 
 	if err := w.coord.Complete(

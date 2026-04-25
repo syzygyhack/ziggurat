@@ -20,6 +20,7 @@ var (
 	runRetries        int
 	runMemory         string
 	runCPUs           int
+	runGPUs           int
 	runMaxOutput      string
 	runConstraints    []string
 	runKeepWorkspace  bool
@@ -49,6 +50,7 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().IntVar(&runRetries, "retries", 0, "max retry count")
 	cmd.Flags().StringVar(&runMemory, "memory", "", "memory requirement (e.g. 4GB)")
 	cmd.Flags().IntVar(&runCPUs, "cpus", 0, "CPU cores requirement")
+	cmd.Flags().IntVar(&runGPUs, "gpus", 0, "GPU devices required")
 	cmd.Flags().StringVar(&runMaxOutput, "max-output", "", "output size limit")
 	cmd.Flags().BoolVar(&runKeepWorkspace, "keep-workspace", false, "don't clean up workspace on failure")
 	cmd.Flags().StringVar(&runAffinity, "affinity", "", "prefer a specific node ID for scheduling")
@@ -153,6 +155,9 @@ func runRun(cmd *cobra.Command, args []string) error {
 	resources := map[string]any{}
 	if runCPUs > 0 {
 		resources["cpu_cores"] = runCPUs
+	}
+	if runGPUs > 0 {
+		resources["gpus"] = runGPUs
 	}
 	if runMemory != "" {
 		size, err := parseSize(runMemory)

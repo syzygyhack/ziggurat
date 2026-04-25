@@ -150,8 +150,8 @@ func matchesTags(requires []string, tags map[string]bool) bool {
 	return true
 }
 
-// matchesResources checks that the node has enough CPU cores and memory
-// for the task's resource requests. A zero request means no requirement.
+// matchesResources checks that the node has enough CPU cores, memory, and
+// GPUs for the task's resource requests. A zero request means no requirement.
 func matchesResources(req model.ResourceReq, caps map[string]string) bool {
 	if req.CPUCores > 0 {
 		v, ok := caps["cpu.cores"]
@@ -170,6 +170,16 @@ func matchesResources(req model.ResourceReq, caps map[string]string) bool {
 		}
 		n, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || n < req.Memory {
+			return false
+		}
+	}
+	if req.GPUs > 0 {
+		v, ok := caps["gpu.count"]
+		if !ok {
+			return false
+		}
+		n, err := strconv.Atoi(v)
+		if err != nil || n < req.GPUs {
 			return false
 		}
 	}
