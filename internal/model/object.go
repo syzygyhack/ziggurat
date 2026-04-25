@@ -50,6 +50,7 @@ type ObjectMeta struct {
 	Tier           Tier              `json:"tier"`
 	Strategy       StorageStrategy   `json:"strategy"`
 	Shards         []ShardPlacement  `json:"shards"`
+	Erasure        *ErasureParams    `json:"erasure,omitempty"` // set when Strategy == ErasureCoded
 	Namespace      string            `json:"namespace"`
 	Pinned         bool              `json:"pinned"`
 	RefCount       int32             `json:"ref_count"`
@@ -64,3 +65,22 @@ type ShardPlacement struct {
 	NodeID   string    `json:"node_id"`
 	Verified time.Time `json:"verified"`
 }
+
+// ErasureParams records the encoding parameters for erasure-coded objects.
+type ErasureParams struct {
+	DataShards   int      `json:"data_shards"`
+	ParityShards int      `json:"parity_shards"`
+	OriginalSize int64    `json:"original_size"`
+	ShardSize    int64    `json:"shard_size"`
+	ShardHashes  []string `json:"shard_hashes"` // hex-encoded BLAKE3 per shard
+}
+
+// StorageClass indicates the type of storage hardware a node provides.
+type StorageClass string
+
+const (
+	StorageClassNVMe StorageClass = "nvme"
+	StorageClassSSD  StorageClass = "ssd"
+	StorageClassHDD  StorageClass = "hdd"
+	StorageClassS3   StorageClass = "s3"
+)

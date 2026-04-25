@@ -119,9 +119,9 @@ storage:
   capacity: 0                    # 0 = use all available, or explicit limit
 ```
 
-### Erasure Coding *(Phase 1 — Phase 0 uses replication for all tiers)*
+### Erasure Coding
 
-For large objects, Reed-Solomon erasure coding splits an object into `k` data shards and `m` parity shards, distributed across `k+m` distinct nodes.
+For large objects, Reed-Solomon erasure coding (via `klauspost/reedsolomon`) splits an object into `k` data shards and `m` parity shards, distributed across `k+m` distinct nodes. The `Put` path automatically erasure-codes objects that exceed the `large` tier threshold when `erasure.enabled: true`.
 
 ```
 Original object (256 MB)
@@ -196,6 +196,73 @@ Deterministic tar rules ensure the same directory contents always produce the sa
 When downloading, `ziggurat get` returns the raw tar by default. The `--extract` flag (or `Accept: application/x-tar+extract` header) extracts to a destination directory. Task input fetching always extracts automatically.
 
 Artifacts follow the same model: a directory artifact is a tar in storage, extracted into the workspace root before execution.
+
+### Consistent Hash Ring
+
+Shard placement uses a consistent hash ring (`cluster.HashRing`) to deterministically map content hashes to nodes. Each physical node gets 128 virtual nodes on the ring for even distribution. When a node joins or leaves, only ~1/N of keys remap.
+
+```
+GetNode(contentHash) → primary node for that object
+GetNodes(contentHash, k+m) → ordered set of nodes for erasure-coded shard distribution
+```
+
+The ring is derived from the gossip membership list and automatically updates on node join/leave events.
+
+### Storage Classes
+
+Nodes advertise their storage hardware via the `storage.class` capability:
+
+| Class | Capability Value | Typical Use |
+|-------|-----------------|-------------|
+| NVMe  | `storage.class: nvme` | Hot data, small frequently-accessed objects |
+| SSD   | `storage.class: ssd`  | Default, general-purpose |
+| HDD   | `storage.class: hdd`  | Cold data, large erasure-coded objects |
+| S3    | `storage.class: s3`   | External cloud storage |
+
+The placement policy (`store.SelectNodes`) routes objects to appropriate storage classes based on tier:
+
+- **Small** (< 1 MB): prefer NVMe > SSD > HDD
+- **Medium** (1-64 MB): prefer SSD > NVMe > HDD
+- **Large** (> 64 MB): prefer HDD > SSD > NVMe (erasure coding handles resilience)
+
+### FUSE Mount
+
+`ziggurat mount <dir>` mounts the cluster's object store as a local filesystem via FUSE:
+
+```
+/mnt/zig/                     ← mount point
+├── datasets/
+│   ├── training.csv          ← namespace key "datasets/training.csv"
+│   └── validation.csv
+├── models/
+│   └── checkpoint.pt
+└── outputs/
+```
+
+- **Read**: `open()` → resolve namespace key → `GET` from store API
+- **Write**: buffer to temp file → `PUT` to store API on `close()`
+- **Directory listing**: derived from namespace key prefixes
+- **Delete**: `unlink()` → `DELETE` on store API
+
+### Interactive Shell
+
+`ziggurat shell` opens a REPL connected to the cluster:
+
+```
+$ ziggurat shell
+Ziggurat interactive shell. Type 'help' for commands, 'exit' to quit.
+zig> ls datasets/
+training.csv    validation.csv
+zig> put results.csv outputs/results.csv
+stored: outputs/results.csv (blake3:a1b2c3d4)
+zig> run python3 process.py
+submitted: task-abc1
+zig> status
+Status: healthy  Nodes: 3  Tasks: 1 running, 0 queued, 42 completed
+zig> exit
+```
+
+Commands: `ls`, `put`, `get`, `rm`, `run`, `tasks`, `status`, `nodes`, `help`, `exit`.
 
 ### Degraded Replication
 
@@ -996,6 +1063,12 @@ ziggurat env list                    # List persistent envs on this node     [1.
 ziggurat env prune                   # Remove stale envs                     [1.5]
   --max-age <duration>              # Override configured env_max_age
 
+# ── Interactive ────────────────────────────────────
+
+ziggurat shell                       # Interactive REPL (ls/put/get/rm/run)  [2]
+ziggurat mount <mountpoint>          # FUSE mount of cluster storage         [2]
+  # Ctrl+C or fusermount -u to unmount
+
 # ── Diagnostics ────────────────────────────────────
 
 ziggurat health                      # Health check (JSON)                   [0a]
@@ -1182,11 +1255,20 @@ type ObjectMeta struct {
     Tier      Tier                 // small | medium | large
     Strategy  StorageStrategy      // replicated | erasure_coded
     Shards    []ShardPlacement
+    Erasure   *ErasureParams       // set when Strategy == ErasureCoded
     Namespace string               // human-friendly key
     Pinned    bool
     RefCount  int32
     Tags      map[string]string
     CreatedAt time.Time
+}
+
+type ErasureParams struct {
+    DataShards   int       // k: minimum shards to reconstruct
+    ParityShards int       // m: redundancy shards
+    OriginalSize int64     // original object size before splitting
+    ShardSize    int64     // per-shard size
+    ShardHashes  []string  // hex-encoded BLAKE3 per shard (len = k+m)
 }
 
 type ShardPlacement struct {
@@ -1206,6 +1288,14 @@ type StorageStrategy int
 const (
     Replicated   StorageStrategy = iota
     ErasureCoded
+)
+
+type StorageClass string
+const (
+    StorageClassNVMe StorageClass = "nvme"
+    StorageClassSSD  StorageClass = "ssd"
+    StorageClassHDD  StorageClass = "hdd"
+    StorageClassS3   StorageClass = "s3"
 )
 ```
 
