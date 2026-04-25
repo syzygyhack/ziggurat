@@ -163,6 +163,42 @@ func printLocalResults(r *benchmark.LocalResult) {
 	fmt.Printf("  Seq write:     %8.0f MB/s\n", r.Disk.WriteMBps)
 	fmt.Printf("  Seq read:      %8.0f MB/s\n", r.Disk.ReadMBps)
 	fmt.Printf("  Fsync latency: %8.0f us\n", r.Disk.FsyncUs)
+
+	if g := r.GPU; g != nil {
+		fmt.Println()
+		fmt.Printf("GPU: %s\n", g.Model)
+		if g.Count > 1 {
+			fmt.Printf("  Devices:       %8d\n", g.Count)
+		}
+		fmt.Printf("  VRAM:          %8d MiB\n", g.VRAMMiB)
+		if g.Driver != "" {
+			fmt.Printf("  Driver:        %8s\n", g.Driver)
+		}
+		if g.CUDA != "" {
+			fmt.Printf("  CUDA:          %8s\n", g.CUDA)
+		}
+		for _, d := range g.Devices {
+			label := fmt.Sprintf("  [%d] %s", d.Index, d.Name)
+			details := []string{fmt.Sprintf("%d MiB", d.VRAMMiB)}
+			if d.TempC > 0 {
+				details = append(details, fmt.Sprintf("%d°C", d.TempC))
+			}
+			if d.PowerW > 0 {
+				pw := fmt.Sprintf("%dW", d.PowerW)
+				if d.PowerCapW > 0 {
+					pw += fmt.Sprintf("/%dW", d.PowerCapW)
+				}
+				details = append(details, pw)
+			}
+			if d.Utilization > 0 {
+				details = append(details, fmt.Sprintf("%d%% util", d.Utilization))
+			}
+			fmt.Printf("%s: %s\n", label, strings.Join(details, ", "))
+		}
+	} else {
+		fmt.Println()
+		fmt.Println("GPU: not detected")
+	}
 }
 
 func printNetworkResults(r *benchmark.NetworkResult) {

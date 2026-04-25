@@ -19,6 +19,7 @@ type LocalResult struct {
 	CPU    CPUResult    `json:"cpu"`
 	Memory MemResult    `json:"memory"`
 	Disk   DiskResult   `json:"disk"`
+	GPU    *GPUInfo     `json:"gpu,omitempty"`
 	System SystemInfo   `json:"system"`
 }
 
@@ -76,6 +77,8 @@ func RunLocal(tmpDir string) (*LocalResult, error) {
 		return result, fmt.Errorf("disk benchmark: %w", err)
 	}
 	result.Disk = disk
+
+	result.GPU = DetectGPU()
 
 	return result, nil
 }
