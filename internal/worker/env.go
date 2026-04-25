@@ -76,7 +76,7 @@ func ResolveEnv(ctx context.Context, task *model.Task, dataDir, workspace string
 
 	if needsSetup {
 		lockPath := filepath.Join(envPath, envLockFile)
-		unlock, err := acquireLock(lockPath)
+		unlock, err := acquireLock(ctx, lockPath)
 		if err != nil {
 			return "", fmt.Errorf("lock env: %w", err)
 		}
@@ -207,8 +207,8 @@ func runSetup(ctx context.Context, command []string, envPath, workspace string) 
 
 // acquireLock creates a simple file-based lock. Returns an unlock function.
 // Uses os.OpenFile with O_CREATE|O_EXCL for atomicity. Spins with backoff
-// until the lock is acquired or context deadline exceeded.
-func acquireLock(path string) (func(), error) {
+// until the lock is acquired or the context is cancelled.
+func acquireLock(ctx context.Context, path string) (func(), error) {
 	for {
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 		if err == nil {
@@ -224,7 +224,11 @@ func acquireLock(path string) (func(), error) {
 			os.Remove(path)
 			continue
 		}
-		time.Sleep(500 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("lock wait cancelled: %w", ctx.Err())
+		case <-time.After(500 * time.Millisecond):
+		}
 	}
 }
 

@@ -13,7 +13,8 @@ node:
 network:
   bind: 0.0.0.0
   http_port: 7100
-  grpc_port: 7101             # Reserved for Phase 0b cluster communication
+  grpc_port: 7101             # Inter-node transport
+  gossip_port: 7102           # Memberlist gossip (SWIM protocol)
   # advertise: ""             # Address other nodes use to reach this node
 
 # client:

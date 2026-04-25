@@ -123,6 +123,7 @@ Connection resolution for client commands: `--addr` flag > `ZIGGURAT_ADDR` env >
 | `ziggurat wait <id>` | Block until task completes |
 | `ziggurat batch --from <file>` | Submit batch from JSON/YAML |
 | `ziggurat dead-letter` | List dead-lettered tasks |
+| `ziggurat run --env <name> --env-setup <cmd>` | Submit with persistent environment |
 
 ### Pipelines (Task DAGs)
 | Command | Description |
@@ -132,6 +133,12 @@ Connection resolution for client commands: `--addr` flag > `ZIGGURAT_ADDR` env >
 | `ziggurat pipeline cancel <id>` | Cancel all stages |
 | `ziggurat pipeline retry <id>` | Retry from first failed stage |
 
+### Environments
+| Command | Description |
+|---------|-------------|
+| `ziggurat env list` | List persistent environments on this node |
+| `ziggurat env prune` | Remove stale environments |
+
 ### Storage
 | Command | Description |
 |---------|-------------|
@@ -139,6 +146,12 @@ Connection resolution for client commands: `--addr` flag > `ZIGGURAT_ADDR` env >
 | `ziggurat get <key> [dest]` | Download object |
 | `ziggurat ls [prefix]` | List objects |
 | `ziggurat rm <key>` | Delete object |
+
+### Diagnostics
+| Command | Description |
+|---------|-------------|
+| `ziggurat benchmark` | CPU, memory, disk I/O, and peer latency benchmarks |
+| `ziggurat benchmark --skip-network` | Local benchmarks only |
 
 All commands support `--json` for machine-parseable output.
 
@@ -149,6 +162,7 @@ ziggurat/
   cmd/ziggurat/        # main entry point
   internal/
     api/               # HTTP REST API (chi router)
+    benchmark/         # Local + network benchmarks
     cluster/           # Gossip membership (memberlist)
     cmd/               # CLI commands (cobra)
     config/            # YAML config loading + defaults

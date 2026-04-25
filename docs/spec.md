@@ -943,6 +943,9 @@ ziggurat run <command...> [flags]    # Submit a task (exec model)            [0a
   --max-output <size>               # Output size limit
   --wait                            # Block until complete
   --keep-workspace                  # Don't clean up on failure
+  --env <name>                     # Persistent environment name
+  --env-setup <cmd>                # Setup command (run in shell)
+  --env-fingerprint <file>         # File whose content determines env staleness
 
 # Examples:
 ziggurat run python3 rg_evolve.py \
@@ -984,11 +987,18 @@ ziggurat unpin <namespace-key>       # Allow GC                              [0b
 ziggurat store status                # Storage utilization                   [0b]
 ziggurat store rebalance             # Trigger shard rebalancing             [1]
 
+# ── Environments ──────────────────────────────────
+
+ziggurat env list                    # List persistent envs on this node     [1.5]
+ziggurat env prune                   # Remove stale envs                     [1.5]
+  --max-age <duration>              # Override configured env_max_age
+
 # ── Diagnostics ────────────────────────────────────
 
 ziggurat health                      # Health check (JSON)                   [0a]
 ziggurat metrics                     # Key metrics summary                   [1]
-ziggurat bench                       # Storage + compute benchmark           [0b]
+ziggurat benchmark                   # CPU, memory, disk, peer latency       [1.5]
+  --skip-network                    # Skip peer latency probes
 ziggurat version                     # Binary version + build info           [0a]
 ```
 
@@ -1373,6 +1383,8 @@ All persistent state lives under `node.data_dir` (default `~/.ziggurat`):
 │   └── tasks.db              # task state snapshots (BoltDB, bucket: tasks)
 ├── store/
 │   └── <hash-prefix>/<hash>  # object shards on disk (2-char prefix for directory fan-out)
+├── envs/                     # persistent task environments (venvs, node_modules, etc.)
+│   └── <name>/               # one directory per environment (named or fingerprinted)
 └── workspaces/               # retained workspaces (--keep-workspace)
 ```
 
