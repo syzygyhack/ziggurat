@@ -29,8 +29,8 @@ type ExecResult struct {
 }
 
 // Execute runs a task in an isolated workspace. This is the core execution
-// engine: workspace setup -> input fetch -> artifact fetch -> subprocess -> output upload.
-func Execute(ctx context.Context, task *model.Task, s *store.Store, cfg config.ComputeConfig, log *slog.Logger) (result *ExecResult) {
+// engine: workspace setup -> env resolve -> input fetch -> artifact fetch -> subprocess -> output upload.
+func Execute(ctx context.Context, task *model.Task, s *store.Store, cfg config.ComputeConfig, dataDir string, log *slog.Logger) (result *ExecResult) {
 	start := time.Now()
 
 	// 1. Create workspace.
@@ -81,10 +81,19 @@ func Execute(ctx context.Context, task *model.Task, s *store.Store, cfg config.C
 		}
 	}
 
-	// 4. Build environment.
-	env := BuildEnv(task, workspace, inputDir, outputDir)
+	// 4. Resolve persistent environment (if configured).
+	envPath, envErr := ResolveEnv(ctx, task, dataDir, workspace, log)
+	if envErr != nil {
+		return &ExecResult{ExitCode: -1, Error: fmt.Sprintf("resolve env: %v", envErr)}
+	}
 
-	// 5. Execute command.
+	// 5. Build environment.
+	env := BuildEnv(task, workspace, inputDir, outputDir)
+	if envPath != "" {
+		env = applyEnvPath(env, envPath)
+	}
+
+	// 6. Execute command.
 	if len(task.Command) == 0 {
 		return &ExecResult{ExitCode: -1, Error: "empty command"}
 	}
@@ -166,7 +175,7 @@ func Execute(ctx context.Context, task *model.Task, s *store.Store, cfg config.C
 		return result
 	}
 
-	// 6. Check output size limit.
+	// 7. Check output size limit.
 	if exitCode == 0 {
 		maxOutput := task.Config.MaxOutputSize
 		if maxOutput == 0 {
@@ -185,7 +194,7 @@ func Execute(ctx context.Context, task *model.Task, s *store.Store, cfg config.C
 		}
 		result.OutputBytes = outputSize
 
-		// 7. Upload output as deterministic tar.
+		// 8. Upload output as deterministic tar.
 		if outputSize > 0 {
 			ref, err := uploadOutput(ctx, s, outputDir, task.ID)
 			if err != nil {
@@ -374,4 +383,34 @@ func BuildEnv(task *model.Task, workspace, inputDir, outputDir string) []string 
 	}
 
 	return env
+}
+
+// applyEnvPath injects persistent-environment variables into the env slice:
+// ZIGGURAT_ENV, ZIGGURAT_ENV_NAME, VIRTUAL_ENV, and prepends <envPath>/bin
+// to PATH so venv/node_modules binaries resolve first.
+func applyEnvPath(env []string, envPath string) []string {
+	binDir := filepath.Join(envPath, "bin")
+	envName := filepath.Base(envPath)
+
+	var result []string
+	for _, e := range env {
+		key, val, ok := strings.Cut(e, "=")
+		if !ok {
+			result = append(result, e)
+			continue
+		}
+		if strings.ToUpper(key) == "PATH" {
+			// Prepend env bin dir to PATH.
+			result = append(result, key+"="+binDir+string(os.PathListSeparator)+val)
+			continue
+		}
+		result = append(result, e)
+	}
+
+	result = append(result,
+		"ZIGGURAT_ENV="+envPath,
+		"ZIGGURAT_ENV_NAME="+envName,
+		"VIRTUAL_ENV="+envPath,
+	)
+	return result
 }

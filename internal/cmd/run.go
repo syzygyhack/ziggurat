@@ -9,21 +9,24 @@ import (
 )
 
 var (
-	runWait          bool
-	runInputs        []string
-	runArtifacts     []string
-	runParams        []string
-	runRequires      []string
-	runImage         string
-	runPriority      int
-	runTimeout       time.Duration
-	runRetries       int
-	runMemory        string
-	runCPUs          int
-	runMaxOutput     string
-	runConstraints   []string
-	runKeepWorkspace bool
-	runAffinity      string
+	runWait           bool
+	runInputs         []string
+	runArtifacts      []string
+	runParams         []string
+	runRequires       []string
+	runImage          string
+	runPriority       int
+	runTimeout        time.Duration
+	runRetries        int
+	runMemory         string
+	runCPUs           int
+	runMaxOutput      string
+	runConstraints    []string
+	runKeepWorkspace  bool
+	runAffinity       string
+	runEnv            string
+	runEnvSetup       string
+	runEnvFingerprint []string
 )
 
 func newRunCmd() *cobra.Command {
@@ -49,6 +52,9 @@ func newRunCmd() *cobra.Command {
 	cmd.Flags().StringVar(&runMaxOutput, "max-output", "", "output size limit")
 	cmd.Flags().BoolVar(&runKeepWorkspace, "keep-workspace", false, "don't clean up workspace on failure")
 	cmd.Flags().StringVar(&runAffinity, "affinity", "", "prefer a specific node ID for scheduling")
+	cmd.Flags().StringVar(&runEnv, "env", "", "persistent environment name")
+	cmd.Flags().StringVar(&runEnvSetup, "env-setup", "", "setup command for the environment (run in shell)")
+	cmd.Flags().StringArrayVar(&runEnvFingerprint, "env-fingerprint", nil, "file whose content determines env staleness")
 	return cmd
 }
 
@@ -97,6 +103,22 @@ func runRun(cmd *cobra.Command, args []string) error {
 
 	if runImage != "" {
 		body["image"] = runImage
+	}
+
+	// Build environment sub-object.
+	if runEnv != "" || runEnvSetup != "" || len(runEnvFingerprint) > 0 {
+		envObj := map[string]any{}
+		if runEnv != "" {
+			envObj["name"] = runEnv
+		}
+		if runEnvSetup != "" {
+			// Wrap in shell so the user can write a single string command.
+			envObj["setup"] = []string{"sh", "-c", runEnvSetup}
+		}
+		if len(runEnvFingerprint) > 0 {
+			envObj["fingerprint"] = runEnvFingerprint
+		}
+		body["environment"] = envObj
 	}
 
 	// Build config sub-object.

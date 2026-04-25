@@ -16,25 +16,27 @@ import (
 
 // Worker executes tasks in isolated workspaces.
 type Worker struct {
-	nodeID string
-	tags   []string
-	caps   map[string]string
-	store  *store.Store
-	coord  *coord.Coordinator
-	cfg    config.ComputeConfig
-	log    *slog.Logger
+	nodeID  string
+	tags    []string
+	caps    map[string]string
+	store   *store.Store
+	coord   *coord.Coordinator
+	cfg     config.ComputeConfig
+	dataDir string // node data directory (for persistent envs)
+	log     *slog.Logger
 }
 
 // New creates a Worker.
-func New(nodeID string, tags []string, caps map[string]string, s *store.Store, c *coord.Coordinator, cfg config.ComputeConfig, log *slog.Logger) *Worker {
+func New(nodeID string, tags []string, caps map[string]string, s *store.Store, c *coord.Coordinator, cfg config.ComputeConfig, dataDir string, log *slog.Logger) *Worker {
 	return &Worker{
-		nodeID: nodeID,
-		tags:   tags,
-		caps:   caps,
-		store:  s,
-		coord:  c,
-		cfg:    cfg,
-		log:    log,
+		nodeID:  nodeID,
+		tags:    tags,
+		caps:    caps,
+		store:   s,
+		coord:   c,
+		cfg:     cfg,
+		dataDir: dataDir,
+		log:     log,
 	}
 }
 
@@ -108,7 +110,7 @@ func (w *Worker) execute(ctx context.Context, task *model.Task) {
 	}
 
 	metrics.WorkersActive.Inc()
-	result := Execute(execCtx, task, w.store, w.cfg, w.log)
+	result := Execute(execCtx, task, w.store, w.cfg, w.dataDir, w.log)
 	metrics.WorkersActive.Dec()
 
 	if err := w.coord.Complete(

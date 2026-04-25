@@ -39,6 +39,8 @@ compute:
   cancel_grace: 10s
   # workspace_dir: ""         # Override workspace location
   max_retained_workspaces: 20
+  env_max_age: 168h            # 7 days — prune unused persistent environments
+  env_max_count: 50            # max persistent envs before FIFO eviction
 
 resilience:
   mode: balanced              # relaxed | balanced | strict

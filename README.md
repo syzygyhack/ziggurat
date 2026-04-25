@@ -170,6 +170,7 @@ ziggurat/
 - **Deterministic tar**: Sorted entries, normalized metadata (uid/gid 0, epoch mtime, fixed mode) — identical content always produces identical hashes across platforms
 - **Pull-based local scheduling**: Workers poll the coordinator via Dequeue; natural load balancing without push complexity
 - **Push-based cross-node dispatch**: Coordinator dispatches tasks to remote workers via gRPC, collects results, and replicates output back to the origin node
+- **Persistent environments**: Fingerprint-based reuse of task environments (venvs, node_modules, etc.) — same deps = same env across tasks, rebuilt only when fingerprint changes
 - **Pipeline DAGs**: Kahn's algorithm cycle detection, `$stage.output` reference resolution, transitive failure cancellation
 - **Platform-split process management**: `process_unix.go` (SIGTERM/SIGKILL via process groups) and `process_windows.go` (CREATE_NEW_PROCESS_GROUP + TerminateProcess)
 

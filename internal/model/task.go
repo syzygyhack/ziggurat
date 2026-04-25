@@ -94,8 +94,9 @@ type Task struct {
 	Requires    []string          `json:"requires,omitempty"`
 	Constraints []string          `json:"constraints,omitempty"` // capability constraint expressions
 	Resources   ResourceReq       `json:"resources,omitempty"`
-	Image     string            `json:"image,omitempty"`
-	Config    TaskConfig        `json:"config"`
+	Image       string            `json:"image,omitempty"`
+	Environment *TaskEnvironment  `json:"environment,omitempty"`
+	Config      TaskConfig        `json:"config"`
 
 	// Set by coordinator / worker.
 	Status       TaskStatus `json:"status"`
@@ -125,6 +126,17 @@ type TaskConfig struct {
 	MaxOutputSize int64    `json:"max_output_size,omitempty"` // 0 = cluster default
 	Affinity      string   `json:"affinity,omitempty"`
 	KeepWorkspace bool     `json:"keep_workspace,omitempty"`
+}
+
+// TaskEnvironment configures a persistent, reusable environment for a task.
+// The worker maintains a directory that survives workspace cleanup, identified
+// by Name (explicit) or derived from the BLAKE3 hash of Fingerprint file
+// contents. When Setup is provided and the fingerprint is stale (or the env
+// doesn't exist), the setup command runs before the main task command.
+type TaskEnvironment struct {
+	Name        string   `json:"name,omitempty"`        // explicit env name; empty = derive from fingerprint
+	Setup       []string `json:"setup,omitempty"`       // command to run when env needs (re)creation
+	Fingerprint []string `json:"fingerprint,omitempty"` // input/artifact filenames whose content hash determines staleness
 }
 
 // TaskMetrics captures timing and size information for a task execution.

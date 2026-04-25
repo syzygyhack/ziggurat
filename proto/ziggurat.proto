@@ -45,6 +45,14 @@ message DispatchTaskRequest {
   bool keep_workspace = 14;
   string image = 15;
   int32 attempt = 16;
+  TaskEnvironment environment = 17;     // persistent env config (optional)
+}
+
+// TaskEnvironment configures a persistent, reusable environment for a task.
+message TaskEnvironment {
+  string name = 1;                      // explicit env name; empty = derive from fingerprint
+  repeated string setup = 2;            // command to run when env needs (re)creation
+  repeated string fingerprint = 3;      // filenames whose content hash determines staleness
 }
 
 message DispatchTaskResponse {

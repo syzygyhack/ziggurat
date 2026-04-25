@@ -53,5 +53,8 @@ func NewRootCmd(version, commit string) *cobra.Command {
 	root.AddCommand(newResumeCmd())
 	root.AddCommand(newVersionCmd(version, commit))
 
+	// Environment management
+	root.AddCommand(newEnvCmd())
+
 	return root
 }

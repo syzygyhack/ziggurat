@@ -75,6 +75,8 @@ type ComputeConfig struct {
 	CancelGrace           time.Duration `yaml:"cancel_grace"`
 	WorkspaceDir          string        `yaml:"workspace_dir"`
 	MaxRetainedWorkspaces int           `yaml:"max_retained_workspaces"`
+	EnvMaxAge             time.Duration `yaml:"env_max_age"`   // prune envs unused for this long (default 7d)
+	EnvMaxCount           int           `yaml:"env_max_count"` // max persistent envs before FIFO eviction (default 50)
 }
 
 type ResilienceConfig struct {
@@ -129,6 +131,8 @@ func DefaultConfig() *Config {
 			MaxOutputSize:         1 << 30, // 1 GB
 			CancelGrace:           10 * time.Second,
 			MaxRetainedWorkspaces: 20,
+			EnvMaxAge:             7 * 24 * time.Hour, // 7 days
+			EnvMaxCount:           50,
 		},
 		Resilience: ResilienceConfig{
 			Mode:              "balanced",

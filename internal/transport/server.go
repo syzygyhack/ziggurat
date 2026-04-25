@@ -192,7 +192,7 @@ func (s *Server) PushShard(stream pb.ZigguratNode_PushShardServer) error {
 
 // protoToTask converts a DispatchTaskRequest to a model.Task.
 func protoToTask(req *pb.DispatchTaskRequest) *model.Task {
-	return &model.Task{
+	t := &model.Task{
 		ID:        req.Id,
 		Command:   req.Command,
 		Env:       req.Env,
@@ -212,11 +212,19 @@ func protoToTask(req *pb.DispatchTaskRequest) *model.Task {
 		},
 		Attempt: int(req.Attempt),
 	}
+	if e := req.Environment; e != nil {
+		t.Environment = &model.TaskEnvironment{
+			Name:        e.Name,
+			Setup:       e.Setup,
+			Fingerprint: e.Fingerprint,
+		}
+	}
+	return t
 }
 
 // taskToProto converts a model.Task to a DispatchTaskRequest.
 func taskToProto(t *model.Task) *pb.DispatchTaskRequest {
-	return &pb.DispatchTaskRequest{
+	req := &pb.DispatchTaskRequest{
 		Id:            t.ID,
 		Command:       t.Command,
 		Env:           t.Env,
@@ -234,6 +242,14 @@ func taskToProto(t *model.Task) *pb.DispatchTaskRequest {
 		KeepWorkspace: t.Config.KeepWorkspace,
 		Attempt:       int32(t.Attempt),
 	}
+	if e := t.Environment; e != nil {
+		req.Environment = &pb.TaskEnvironment{
+			Name:        e.Name,
+			Setup:       e.Setup,
+			Fingerprint: e.Fingerprint,
+		}
+	}
+	return req
 }
 
 // taskResultToBytes is a helper that reads a PullShard response into a byte slice.

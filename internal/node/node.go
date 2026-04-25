@@ -127,7 +127,7 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 	log.Info("node capabilities", "caps", caps)
 
 	// Initialize worker.
-	w := worker.New(nodeID, cfg.Node.Tags, caps, s, c, cfg.Compute, log.With("component", "worker"))
+	w := worker.New(nodeID, cfg.Node.Tags, caps, s, c, cfg.Compute, dataDir, log.With("component", "worker"))
 
 	// Initialize GC.
 	gc := store.NewGC(s, cfg.Storage.GCGracePeriod, log.With("component", "gc"))
@@ -338,9 +338,21 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 		}
 	}()
 
+	// Resolve the join address other nodes should use to enter the cluster.
+	// Prefer the gossip bind from memberlist (which resolves the real IP)
+	// over the raw config, which may be 0.0.0.0.
+	joinAddr := ""
+	if cl != nil {
+		joinAddr = cl.LocalAddr()
+	}
+
 	log.Info("node ready", "id", nodeID, "http", ln.Addr().String(), "grpc", grpcLn.Addr().String())
-	fmt.Fprintf(os.Stderr, "\nZiggurat node ready.\n  ID:   %s\n  Role: %s\n  HTTP: %s\n  gRPC: %s\n\n",
+	fmt.Fprintf(os.Stderr, "\nZiggurat node ready.\n  ID:   %s\n  Role: %s\n  HTTP: %s\n  gRPC: %s\n",
 		nodeID, role, ln.Addr().String(), grpcLn.Addr().String())
+	if joinAddr != "" {
+		fmt.Fprintf(os.Stderr, "  Join: %s\n", joinAddr)
+	}
+	fmt.Fprintln(os.Stderr)
 	return n, nil
 }
 

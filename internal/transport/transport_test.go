@@ -58,7 +58,7 @@ func setupTestEnv(t *testing.T) *testEnv {
 
 	w := worker.New("test-worker", nil, nil, s, c, config.ComputeConfig{
 		TaskTimeout: 5 * time.Minute,
-	}, log)
+	}, t.TempDir(), log)
 
 	srv := grpc.NewServer()
 	tSrv := NewServer(c, s, w, log)
@@ -176,7 +176,7 @@ func TestTransport_PushShard(t *testing.T) {
 
 	w := worker.New("dst-worker", nil, nil, dstStore, c, config.ComputeConfig{
 		TaskTimeout: 5 * time.Minute,
-	}, log)
+	}, t.TempDir(), log)
 
 	srv := grpc.NewServer()
 	tSrv := NewServer(c, dstStore, w, log)

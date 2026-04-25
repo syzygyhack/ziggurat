@@ -243,6 +243,9 @@ The contract between Ziggurat and a task is pure environment:
 | `ZIGGURAT_TASK_ID` | Task UUID |
 | `ZIGGURAT_ATTEMPT` | Current attempt number (0-indexed) |
 | `ZIGGURAT_PARAM_<KEY>` | Each task parameter as an env var (uppercased) |
+| `ZIGGURAT_ENV` | Persistent environment directory (only if `environment` is set) |
+| `ZIGGURAT_ENV_NAME` | Environment name (only if `environment` is set) |
+| `VIRTUAL_ENV` | Same as `ZIGGURAT_ENV` (Python venv compatibility) |
 
 **The rules**:
 - Read data from `$ZIGGURAT_INPUT/<name>/` (populated from storage before execution)
@@ -334,6 +337,92 @@ image: "ghcr.io/syzygy/research-env:latest"  # OCI image
 ```
 
 When `image` is set, the workspace is bind-mounted into the container. Same env vars, same contract, different execution environment.
+
+### Persistent Environments
+
+Tasks often need dependencies (Python packages, npm modules, compiled libraries) that are expensive to install on every run. Ziggurat provides **persistent environments** -- named directories that survive workspace cleanup and are reused across tasks.
+
+Ziggurat does not understand Python, pip, venv, conda, npm, or any specific runtime. It provides a named persistent directory and runs a setup command when that directory is new or stale. What goes in the directory is the task's business.
+
+#### Task Environment Config
+
+```go
+type TaskEnvironment struct {
+    Name        string   // explicit env name; empty = derive from fingerprint
+    Setup       []string // command to run when env needs (re)creation
+    Fingerprint []string // input/artifact filenames whose content hash determines staleness
+}
+```
+
+#### Resolution Rules
+
+1. `Name` set → use it directly (e.g. `research-rg`)
+2. `Name` empty, `Fingerprint` set → BLAKE3 hash of fingerprint file contents, first 16 hex chars
+3. Neither → task ID (ephemeral per-task env, no reuse)
+
+Same fingerprint = same env name = automatic reuse across tasks. Different fingerprint = different env = isolated.
+
+#### Worker Behavior
+
+1. If `task.Environment` is nil → no env management (current behavior)
+2. Resolve env name per rules above
+3. Env directory: `<data_dir>/envs/<name>/`
+4. Compute fingerprint hash from listed files (searched in workspace root, then `input/`)
+5. Compare against stored `.ziggurat-fingerprint` in the env directory
+6. Match → skip setup, reuse. Mismatch or missing → acquire file lock, run `Setup` command with `cwd=env_dir`, write fingerprint
+7. Set environment variables:
+   - `ZIGGURAT_ENV=<env_dir>` — the persistent directory
+   - `ZIGGURAT_ENV_NAME=<name>`
+   - `VIRTUAL_ENV=<env_dir>` — Python venv compatibility
+   - Prepend `<env_dir>/bin` to `PATH`
+8. Run main command as normal
+
+#### Concurrency
+
+File lock (`<env_dir>/.ziggurat-lock`) during setup. First task to need the env acquires lock, runs setup, writes fingerprint, releases lock. Concurrent tasks block on the lock, then share the built env. Stale locks (>10 minutes) are broken automatically.
+
+#### GC
+
+```yaml
+compute:
+  env_max_age: 168h    # 7 days — prune unused envs
+  env_max_count: 50    # max persistent envs before FIFO eviction
+```
+
+Last-used timestamp is tracked per env. `ziggurat env list` shows persistent envs on a node. `ziggurat env prune` removes stale envs.
+
+#### Cross-Node Behavior
+
+Each worker builds its own env from `Setup`. Venvs contain platform-specific binaries and are not portable between machines. The fingerprint ensures the same deps produce the same env *name* on every node, but env *contents* are built locally per-worker.
+
+#### CLI
+
+```bash
+# Named env with fingerprint-based rebuild
+ziggurat run python3 rg_evolve.py \
+  --env research-rg \
+  --env-setup "python3 -m venv \$ZIGGURAT_ENV && \$ZIGGURAT_ENV/bin/pip install -r \$ZIGGURAT_INPUT/requirements/requirements.txt" \
+  --env-fingerprint requirements.txt \
+  --input requirements=deps/requirements.txt \
+  --artifact scripts/rg_evolve.py
+
+# Content-addressed (no name — same requirements = same env)
+ziggurat run python3 rg_evolve.py \
+  --env-setup "python3 -m venv \$ZIGGURAT_ENV && \$ZIGGURAT_ENV/bin/pip install -r requirements.txt" \
+  --env-fingerprint requirements.txt
+
+# JSON API
+{
+  "command": ["python3", "rg_evolve.py"],
+  "environment": {
+    "name": "research-rg",
+    "setup": ["sh", "-c", "python3 -m venv $ZIGGURAT_ENV && $ZIGGURAT_ENV/bin/pip install -r $ZIGGURAT_INPUT/requirements/requirements.txt"],
+    "fingerprint": ["requirements.txt"]
+  }
+}
+```
+
+Because `<env_dir>/bin` is prepended to PATH, `python3` inside the task resolves to the venv's Python automatically. No `source activate` needed.
 
 ### Capability Matching
 
@@ -500,6 +589,7 @@ type Task struct {
     Constraints []string             // capability constraint expressions (all must pass)
     Resources   ResourceReq          // optional resource requests for admission
     Image       string               // OCI image ref (empty = bare exec)
+    Environment *TaskEnvironment     // persistent env config (optional)
     Config      TaskConfig
 
     // Set by coordinator / worker

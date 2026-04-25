@@ -19,11 +19,12 @@ type submitTaskRequest struct {
 	InputRefs map[string]string `json:"input_refs,omitempty"`
 	Artifacts []string          `json:"artifacts,omitempty"`
 	Params    map[string]string `json:"params,omitempty"`
-	Requires    []string          `json:"requires,omitempty"`
-	Constraints []string          `json:"constraints,omitempty"`
-	Resources   model.ResourceReq `json:"resources,omitempty"`
-	Image     string            `json:"image,omitempty"`
-	Config    model.TaskConfig  `json:"config,omitempty"`
+	Requires    []string               `json:"requires,omitempty"`
+	Constraints []string               `json:"constraints,omitempty"`
+	Resources   model.ResourceReq      `json:"resources,omitempty"`
+	Image       string                 `json:"image,omitempty"`
+	Environment *model.TaskEnvironment `json:"environment,omitempty"`
+	Config      model.TaskConfig       `json:"config,omitempty"`
 }
 
 func (s *Server) submitTask(w http.ResponseWriter, r *http.Request) {
@@ -43,16 +44,17 @@ func (s *Server) submitTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	task := &model.Task{
-		Command:   req.Command,
-		Env:       req.Env,
-		InputRefs: req.InputRefs,
-		Artifacts: req.Artifacts,
-		Params:    req.Params,
+		Command:     req.Command,
+		Env:         req.Env,
+		InputRefs:   req.InputRefs,
+		Artifacts:   req.Artifacts,
+		Params:      req.Params,
 		Requires:    req.Requires,
 		Constraints: req.Constraints,
 		Resources:   req.Resources,
-		Image:     req.Image,
-		Config:    req.Config,
+		Image:       req.Image,
+		Environment: req.Environment,
+		Config:      req.Config,
 	}
 
 	result, err := s.coord.Submit(r.Context(), task)
@@ -106,6 +108,7 @@ func (s *Server) submitBatch(w http.ResponseWriter, r *http.Request) {
 			Constraints: req.Constraints,
 			Resources:   req.Resources,
 			Image:       req.Image,
+			Environment: req.Environment,
 			Config:      req.Config,
 		}
 	}
