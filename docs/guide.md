@@ -133,7 +133,11 @@ ziggurat run \
 | `--image ref` | OCI image reference (future) |
 | `--keep-workspace` | Don't clean up workspace on failure |
 | `--max-output 1GB` | Output size limit |
+| `--gpus N` | GPU devices required |
 | `--affinity id` | Prefer a specific node for scheduling |
+| `--env name` | Persistent environment name (reused across tasks) |
+| `--env-setup cmd` | Shell command to initialize the environment |
+| `--env-fingerprint file` | File whose content triggers env rebuild (repeatable) |
 
 ### Checking Task Status
 
@@ -265,8 +269,8 @@ the workspace root.
 ziggurat status
 ```
 
-Shows health, node count, task counts (running/queued/completed/failed), store
-usage, and a table of active tasks.
+Shows health, node count, task counts (running/queued/completed/failed/cancelled/dead-letter),
+store usage, and a table of active tasks.
 
 ### Node Listing
 
@@ -278,7 +282,9 @@ ziggurat nodes
 ziggurat node <id>
 ```
 
-Shows node ID, name, address, role, tags, and capabilities.
+The list view shows node ID, name, HTTP address, role, and tags. The detail view
+(`ziggurat node <id>`) also shows gRPC and gossip addresses, capabilities, status,
+running/queued task counts, and uptime.
 
 ### Drain and Resume
 
@@ -295,6 +301,115 @@ ziggurat resume
 Drain does not stop the node -- it only pauses task dequeuing. Submissions
 still succeed (tasks queue but won't execute on the drained node). Use
 `resume` to return to normal operation.
+
+## Persistent Environments
+
+Tasks that need a pre-built environment (virtualenv, node_modules, etc.) can use
+persistent environments. These survive across tasks and are rebuilt only when their
+fingerprint changes.
+
+```bash
+# Create/reuse a named environment, initialized by a setup command
+ziggurat run \
+  --env my-venv \
+  --env-setup "python3 -m venv . && ./bin/pip install -r requirements.txt" \
+  --env-fingerprint requirements.txt \
+  -- ./bin/python train.py
+```
+
+| Flag | Purpose |
+|------|---------|
+| `--env name` | Name for the environment directory (reused across tasks) |
+| `--env-setup cmd` | Shell command run inside the env dir on first use or when stale |
+| `--env-fingerprint file` | File to hash for staleness detection (repeatable) |
+
+Rules:
+- `--env-setup` requires `--env` or `--env-fingerprint` to be meaningful.
+- If fingerprint files change, the setup command re-runs automatically.
+- If no fingerprint files are specified, setup runs only once (on initial creation).
+- Missing fingerprint files are a fatal error (not silently skipped).
+
+The environment directory is passed to the task as `$ZIGGURAT_ENV`. The setup
+command also receives `$ZIGGURAT_WORKSPACE` and `$ZIGGURAT_INPUT`.
+
+### Managing Environments
+
+```bash
+# List environments on this node
+ziggurat env list
+
+# Remove stale environments (default: unused for 7 days)
+ziggurat env prune
+ziggurat env prune --max-age 48h
+```
+
+## Live Dashboard
+
+```bash
+ziggurat top
+```
+
+Displays a live-refreshing view of cluster status, node load, and active tasks.
+Refreshes every 2 seconds by default.
+
+```bash
+# Custom refresh interval
+ziggurat top --interval 5s
+
+# Single snapshot (useful for scripts)
+ziggurat top --once
+
+# Machine-parseable output
+ziggurat top --json
+```
+
+Press Ctrl+C to quit the live view.
+
+## Benchmarking
+
+```bash
+ziggurat benchmark
+```
+
+Runs local CPU (BLAKE3 throughput), memory, and disk I/O benchmarks. Detects
+GPUs via `nvidia-smi` if available. If a running node is reachable, also
+measures HTTP round-trip latency to all cluster peers.
+
+```bash
+# Skip network probes (local benchmarks only)
+ziggurat benchmark --skip-network
+
+# JSON output
+ziggurat benchmark --json
+```
+
+## Interactive Shell
+
+```bash
+ziggurat shell
+```
+
+Opens a REPL connected to the cluster. Supports `ls`, `put`, `get`, `rm`,
+`run`, `tasks`, `status`, `nodes`, and `top` commands. Type `help` for usage,
+`exit` or Ctrl+D to quit.
+
+## FUSE Mount (Linux)
+
+```bash
+ziggurat mount /mnt/zig
+```
+
+Mounts the object store as a filesystem. Objects appear as files using their
+namespace keys; subdirectories are derived from key prefixes. Supports read
+and write.
+
+```bash
+ls /mnt/zig/
+cat /mnt/zig/datasets/train.csv
+cp results.tar /mnt/zig/outputs/results.tar
+```
+
+Press Ctrl+C or run `fusermount -u /mnt/zig` to unmount.
 
 ## Configuration
 
