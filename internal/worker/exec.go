@@ -31,7 +31,8 @@ type ExecResult struct {
 // Execute runs a task in an isolated workspace. This is the core execution
 // engine: workspace setup -> env resolve -> input fetch -> artifact fetch -> subprocess -> output upload.
 // gpuDevices holds allocated GPU indices; when non-empty, CUDA_VISIBLE_DEVICES is set.
-func Execute(ctx context.Context, task *model.Task, s *store.Store, cfg config.ComputeConfig, dataDir string, gpuDevices []int, log *slog.Logger) (result *ExecResult) {
+// logBroadcaster is optional; when non-nil, stdout/stderr are streamed live to subscribers.
+func Execute(ctx context.Context, task *model.Task, s *store.Store, cfg config.ComputeConfig, dataDir string, gpuDevices []int, logBroadcaster *LogBroadcaster, log *slog.Logger) (result *ExecResult) {
 	start := time.Now()
 
 	// 1. Create workspace.
@@ -107,8 +108,19 @@ func Execute(ctx context.Context, task *model.Task, s *store.Store, cfg config.C
 	cmd.Env = env
 
 	var stdoutBuf, stderrBuf bytes.Buffer
-	cmd.Stdout = &stdoutBuf
-	cmd.Stderr = &stderrBuf
+	if logBroadcaster != nil {
+		cmd.Stdout = io.MultiWriter(&stdoutBuf, logBroadcaster.Writer(task.ID, "stdout"))
+		cmd.Stderr = io.MultiWriter(&stderrBuf, logBroadcaster.Writer(task.ID, "stderr"))
+	} else {
+		cmd.Stdout = &stdoutBuf
+		cmd.Stderr = &stderrBuf
+	}
+
+	// Close the log stream when execution finishes so SSE subscribers get the
+	// "done" event. Deferred before Start so it runs even on start failure.
+	if logBroadcaster != nil {
+		defer logBroadcaster.Close(task.ID)
+	}
 
 	// Start process in its own process group for clean cancellation.
 	SetProcessGroup(cmd)

@@ -16,15 +16,16 @@ import (
 
 // Worker executes tasks in isolated workspaces.
 type Worker struct {
-	nodeID  string
-	tags    []string
-	caps    map[string]string
-	store   *store.Store
-	coord   *coord.Coordinator
-	cfg     config.ComputeConfig
-	dataDir string // node data directory (for persistent envs)
-	gpuAlloc *GPUAllocator
-	log     *slog.Logger
+	nodeID         string
+	tags           []string
+	caps           map[string]string
+	store          *store.Store
+	coord          *coord.Coordinator
+	cfg            config.ComputeConfig
+	dataDir        string // node data directory (for persistent envs)
+	gpuAlloc       *GPUAllocator
+	logBroadcaster *LogBroadcaster
+	log            *slog.Logger
 }
 
 // New creates a Worker.
@@ -40,6 +41,12 @@ func New(nodeID string, tags []string, caps map[string]string, s *store.Store, c
 		gpuAlloc: NewGPUAllocator(caps),
 		log:      log,
 	}
+}
+
+// SetLogBroadcaster attaches a broadcaster for live log streaming.
+// When set, task stdout/stderr are tee'd to subscribers in real time.
+func (w *Worker) SetLogBroadcaster(lb *LogBroadcaster) {
+	w.logBroadcaster = lb
 }
 
 // Run starts the worker loop, polling the coordinator for tasks.
@@ -126,7 +133,7 @@ func (w *Worker) execute(ctx context.Context, task *model.Task) {
 	}
 
 	metrics.WorkersActive.Inc()
-	result := Execute(execCtx, task, w.store, w.cfg, w.dataDir, gpuDevices, w.log)
+	result := Execute(execCtx, task, w.store, w.cfg, w.dataDir, gpuDevices, w.logBroadcaster, w.log)
 	metrics.WorkersActive.Dec()
 
 	if err := w.coord.Complete(

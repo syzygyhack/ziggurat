@@ -18,6 +18,7 @@ func RegisterRoutes(r chi.Router, s *Server) {
 		r.Get("/tasks/{id}", s.getTask)
 		r.Delete("/tasks/{id}", s.cancelTask)
 		r.Post("/tasks/{id}/wait", s.waitTask)
+		r.Get("/tasks/{id}/logs", s.taskLogs)
 
 		// Pipelines
 		r.Post("/pipelines", s.submitPipeline)

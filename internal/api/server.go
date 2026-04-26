@@ -13,6 +13,7 @@ import (
 	"github.com/syzygyhack/ziggurat/internal/coord"
 	"github.com/syzygyhack/ziggurat/internal/model"
 	"github.com/syzygyhack/ziggurat/internal/store"
+	"github.com/syzygyhack/ziggurat/internal/worker"
 )
 
 // NodeLister provides cluster node information to the API.
@@ -36,6 +37,7 @@ type Server struct {
 	onDrain          func()     // optional; triggers shard migration on drain
 	pipelines        *coord.PipelineManager
 	role             string     // "hybrid", "coordinator", "worker"
+	logBroadcaster   *worker.LogBroadcaster
 }
 
 // New creates an API server (single-node mode).
@@ -109,6 +111,12 @@ func (s *Server) SetUnderReplicated(fn func() int) {
 // called. Used to start shard migration to peer nodes.
 func (s *Server) SetOnDrain(fn func()) {
 	s.onDrain = fn
+}
+
+// SetLogBroadcaster registers the log broadcaster for SSE log streaming.
+// When set, the /api/v1/tasks/:id/logs endpoint streams live stdout/stderr.
+func (s *Server) SetLogBroadcaster(lb *worker.LogBroadcaster) {
+	s.logBroadcaster = lb
 }
 
 // Start begins listening on the given address.

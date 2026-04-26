@@ -143,8 +143,12 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 	caps = MergeCapabilities(caps, cfg.Node.Capabilities)
 	log.Info("node capabilities", "caps", caps)
 
+	// Initialize log broadcaster for live task log streaming (SSE).
+	logBroadcaster := worker.NewLogBroadcaster()
+
 	// Initialize worker.
 	w := worker.New(nodeID, cfg.Node.Tags, caps, s, c, cfg.Compute, dataDir, log.With("component", "worker"))
+	w.SetLogBroadcaster(logBroadcaster)
 
 	// Initialize GC.
 	gc := store.NewGC(s, cfg.Storage.GCGracePeriod, log.With("component", "gc"))
@@ -213,6 +217,7 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 		apiSrv = api.NewWithOptions(c, s, log.With("component", "api"), maxUpload)
 	}
 	apiSrv.SetRole(role)
+	apiSrv.SetLogBroadcaster(logBroadcaster)
 
 	// Initialize gRPC transport server and client.
 	grpcSrv := grpc.NewServer()

@@ -18,10 +18,10 @@ import (
 	"go.etcd.io/bbolt"
 )
 
-// testServer creates a fully wired API server backed by real store and
-// coordinator, returning an httptest.Server. Callers use standard HTTP
-// to exercise the API.
-func testServer(t *testing.T) *httptest.Server {
+// testServerWithRef creates a fully wired API server backed by real store and
+// coordinator, returning both the httptest.Server and the API Server for
+// further configuration (e.g. SetLogBroadcaster).
+func testServerWithRef(t *testing.T) (*httptest.Server, *Server) {
 	t.Helper()
 	tmpDir := t.TempDir()
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
@@ -50,6 +50,15 @@ func testServer(t *testing.T) *httptest.Server {
 	srv := New(c, s, log)
 	ts := httptest.NewServer(srv.router)
 	t.Cleanup(ts.Close)
+	return ts, srv
+}
+
+// testServer creates a fully wired API server backed by real store and
+// coordinator, returning an httptest.Server. Callers use standard HTTP
+// to exercise the API.
+func testServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	ts, _ := testServerWithRef(t)
 	return ts
 }
 
