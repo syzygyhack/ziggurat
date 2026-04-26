@@ -92,10 +92,14 @@ func NewDispatcher(
 }
 
 // Run starts the dispatch loop. It periodically dequeues tasks for remote
-// execution and collects results from previously dispatched tasks.
+// execution, collects results from previously dispatched tasks, and
+// redistributes work from overloaded workers.
 func (d *Dispatcher) Run(ctx context.Context) {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
+
+	stealTicker := time.NewTicker(5 * time.Second)
+	defer stealTicker.Stop()
 
 	for {
 		select {
@@ -104,6 +108,8 @@ func (d *Dispatcher) Run(ctx context.Context) {
 		case <-ticker.C:
 			d.dispatchBatch(ctx)
 			d.collectResults(ctx)
+		case <-stealTicker.C:
+			d.stealWork(ctx)
 		}
 	}
 }
@@ -321,6 +327,63 @@ func (d *Dispatcher) replicateOutput(ctx context.Context, remoteAddr, outputRef,
 	d.log.Info("task output replicated to coordinator",
 		"task", taskID, "hash", shortHash(hash))
 	return nil
+}
+
+// stealWork redistributes tasks from overloaded workers back to the queue.
+// Only tasks in SCHEDULED state (dispatched but not confirmed running) are
+// candidates. Stolen tasks are cancelled on the remote worker and re-queued
+// locally for reassignment to a less loaded node.
+func (d *Dispatcher) stealWork(ctx context.Context) {
+	overloaded := d.coord.workerLoad.OverloadedWorkers()
+	if len(overloaded) == 0 {
+		return
+	}
+
+	overloadedSet := make(map[string]bool, len(overloaded))
+	for _, id := range overloaded {
+		overloadedSet[id] = true
+	}
+
+	// Find dispatched tasks on overloaded workers.
+	d.dispatchedMu.Lock()
+	var candidates []struct {
+		taskID string
+		addr   string
+		worker string
+	}
+	for taskID, addr := range d.dispatched {
+		t, err := d.coord.Get(taskID)
+		if err != nil {
+			continue
+		}
+		if t.Status == model.TaskScheduled && overloadedSet[t.Worker] {
+			candidates = append(candidates, struct {
+				taskID string
+				addr   string
+				worker string
+			}{taskID, addr, t.Worker})
+		}
+	}
+	d.dispatchedMu.Unlock()
+
+	for _, c := range candidates {
+		// Cancel on the remote worker.
+		cancelCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		_ = d.transport.CancelTask(cancelCtx, c.addr, c.taskID)
+		cancel()
+
+		// Requeue locally.
+		n := d.coord.RequeueByWorker(c.worker)
+
+		d.dispatchedMu.Lock()
+		delete(d.dispatched, c.taskID)
+		d.dispatchedMu.Unlock()
+
+		if n > 0 {
+			d.log.Info("work stolen from overloaded worker",
+				"task", c.taskID, "worker", c.worker, "requeued", n)
+		}
+	}
 }
 
 func shortHash(h string) string {
