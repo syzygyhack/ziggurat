@@ -1,6 +1,8 @@
 package scheduler
 
 import (
+	"strconv"
+
 	"github.com/syzygyhack/ziggurat/internal/model"
 )
 
@@ -138,4 +140,85 @@ func loadFactor(nodeID string, load NodeLoad) float64 {
 		return 1
 	}
 	return f
+}
+
+// AllocatedResources tracks resources currently allocated to running tasks
+// on a node.
+type AllocatedResources struct {
+	Memory   int64 // bytes currently allocated
+	CPUCores int   // cores currently allocated
+	GPUs     int   // GPU devices currently allocated
+}
+
+// ResourceTracker reports allocated resources per node. Used by Fits()
+// to determine if a node has enough remaining capacity for a task.
+type ResourceTracker interface {
+	Allocated(nodeID string) AllocatedResources
+}
+
+// Fits checks whether a candidate node has enough remaining resources to
+// run the task. Returns true if:
+//   - The task has no resource requirements, OR
+//   - For each non-zero requirement, the node's total capacity minus
+//     currently allocated resources is >= the task's request.
+//
+// If tracker is nil, only static capacity (caps) is checked.
+func Fits(task *model.Task, candidate Candidate, tracker ResourceTracker) bool {
+	req := task.Resources
+	if req.Memory == 0 && req.CPUCores == 0 && req.GPUs == 0 {
+		return true
+	}
+
+	var alloc AllocatedResources
+	if tracker != nil {
+		alloc = tracker.Allocated(candidate.NodeID)
+	}
+
+	if req.Memory > 0 {
+		total, ok := parseCapInt(candidate.Caps, "mem.total")
+		if !ok {
+			return false
+		}
+		remaining := total - alloc.Memory
+		if req.Memory > remaining {
+			return false
+		}
+	}
+
+	if req.CPUCores > 0 {
+		total, ok := parseCapInt(candidate.Caps, "cpu.cores")
+		if !ok {
+			return false
+		}
+		remaining := int(total) - alloc.CPUCores
+		if req.CPUCores > remaining {
+			return false
+		}
+	}
+
+	if req.GPUs > 0 {
+		total, ok := parseCapInt(candidate.Caps, "gpu.count")
+		if !ok {
+			return false
+		}
+		remaining := int(total) - alloc.GPUs
+		if req.GPUs > remaining {
+			return false
+		}
+	}
+
+	return true
+}
+
+// parseCapInt extracts an integer value from a capabilities map.
+func parseCapInt(caps map[string]string, key string) (int64, bool) {
+	v, ok := caps[key]
+	if !ok {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }

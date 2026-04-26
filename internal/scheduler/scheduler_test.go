@@ -223,3 +223,112 @@ func TestScore_ArtifactLocality(t *testing.T) {
 		t.Fatalf("expected 1.0 for all artifacts local, got %f", s)
 	}
 }
+
+// mockResources implements ResourceTracker for tests.
+type mockResources struct {
+	allocated map[string]AllocatedResources
+}
+
+func (m *mockResources) Allocated(nodeID string) AllocatedResources {
+	return m.allocated[nodeID]
+}
+
+func TestFits_NoRequirements(t *testing.T) {
+	task := &model.Task{Command: []string{"echo"}}
+	c := Candidate{NodeID: "node-1", Caps: map[string]string{
+		"cpu.cores": "8",
+		"mem.total": "34359738368",
+	}}
+
+	if !Fits(task, c, nil) {
+		t.Fatal("task with no resource requirements should fit anywhere")
+	}
+}
+
+func TestFits_MemoryExceeded(t *testing.T) {
+	task := &model.Task{
+		Command:   []string{"process"},
+		Resources: model.ResourceReq{Memory: 32 << 30}, // 32 GB
+	}
+	c := Candidate{NodeID: "node-1", Caps: map[string]string{
+		"mem.total": "34359738368", // 32 GB
+	}}
+	tracker := &mockResources{
+		allocated: map[string]AllocatedResources{
+			"node-1": {Memory: 16 << 30}, // 16 GB already allocated
+		},
+	}
+
+	// 32 GB requested, only 16 GB remaining (32 - 16) → doesn't fit
+	if Fits(task, c, tracker) {
+		t.Fatal("task should not fit: 32GB requested but only 16GB remaining")
+	}
+}
+
+func TestFits_MemoryFits(t *testing.T) {
+	task := &model.Task{
+		Command:   []string{"process"},
+		Resources: model.ResourceReq{Memory: 8 << 30}, // 8 GB
+	}
+	c := Candidate{NodeID: "node-1", Caps: map[string]string{
+		"mem.total": "34359738368", // 32 GB
+	}}
+	tracker := &mockResources{
+		allocated: map[string]AllocatedResources{
+			"node-1": {Memory: 16 << 30}, // 16 GB already allocated
+		},
+	}
+
+	// 8 GB requested, 16 GB remaining → fits
+	if !Fits(task, c, tracker) {
+		t.Fatal("task should fit: 8GB requested and 16GB remaining")
+	}
+}
+
+func TestFits_CPUExceeded(t *testing.T) {
+	task := &model.Task{
+		Command:   []string{"process"},
+		Resources: model.ResourceReq{CPUCores: 8},
+	}
+	c := Candidate{NodeID: "node-1", Caps: map[string]string{
+		"cpu.cores": "16",
+	}}
+	tracker := &mockResources{
+		allocated: map[string]AllocatedResources{
+			"node-1": {CPUCores: 12},
+		},
+	}
+
+	// 8 cores requested, only 4 remaining (16 - 12) → doesn't fit
+	if Fits(task, c, tracker) {
+		t.Fatal("task should not fit: 8 cores requested but only 4 remaining")
+	}
+}
+
+func TestFits_NoCapsMeansReject(t *testing.T) {
+	task := &model.Task{
+		Command:   []string{"process"},
+		Resources: model.ResourceReq{Memory: 8 << 30},
+	}
+	c := Candidate{NodeID: "node-1", Caps: map[string]string{}}
+
+	// No mem.total capability → reject
+	if Fits(task, c, nil) {
+		t.Fatal("task should not fit: node has no mem.total capability")
+	}
+}
+
+func TestFits_NilTracker(t *testing.T) {
+	task := &model.Task{
+		Command:   []string{"process"},
+		Resources: model.ResourceReq{Memory: 8 << 30},
+	}
+	c := Candidate{NodeID: "node-1", Caps: map[string]string{
+		"mem.total": "34359738368", // 32 GB
+	}}
+
+	// Nil tracker → assume nothing allocated, 8 GB < 32 GB → fits
+	if !Fits(task, c, nil) {
+		t.Fatal("task should fit when tracker is nil and total capacity is sufficient")
+	}
+}

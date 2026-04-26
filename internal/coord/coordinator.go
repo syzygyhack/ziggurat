@@ -195,6 +195,7 @@ func (c *Coordinator) Cancel(id string) (*model.Task, error) {
 		metrics.TaskQueueDepth.Set(float64(c.queue.Len()))
 		if t.Worker != "" {
 			c.workerLoad.TaskFinished(t.Worker)
+			c.workerLoad.ReleaseResources(t.Worker, t.Resources.Memory, t.Resources.CPUCores, t.Resources.GPUs)
 		}
 		if !t.RemoteOrigin {
 			ReleaseRefs(t, c.store)
@@ -368,6 +369,7 @@ func (c *Coordinator) Complete(id string, exitCode int, stdout, stderr, errMsg, 
 
 	if t.Worker != "" {
 		c.workerLoad.TaskFinished(t.Worker)
+		c.workerLoad.ReleaseResources(t.Worker, t.Resources.Memory, t.Resources.CPUCores, t.Resources.GPUs)
 	}
 	t.Metrics.OutputBytes = outputBytes
 
@@ -455,6 +457,7 @@ func (c *Coordinator) CompleteRemote(id string, exitCode int, stdout, stderr, er
 
 	if t.Worker != "" {
 		c.workerLoad.TaskFinished(t.Worker)
+		c.workerLoad.ReleaseResources(t.Worker, t.Resources.Memory, t.Resources.CPUCores, t.Resources.GPUs)
 	}
 
 	// Adopt terminal status directly — no retry logic.
@@ -532,6 +535,7 @@ func (c *Coordinator) MarkRunning(id, workerID string) bool {
 	t.Worker = workerID
 	t.Metrics.StartedAt = time.Now()
 	c.workerLoad.TaskStarted(workerID)
+	c.workerLoad.AllocResources(workerID, t.Resources.Memory, t.Resources.CPUCores, t.Resources.GPUs)
 	if err := c.persist.Save(t); err != nil {
 		c.log.Error("failed to persist running state", "id", id, "err", err)
 	}
@@ -641,6 +645,7 @@ func (c *Coordinator) MarkDispatched(id, workerID string) bool {
 	t.Worker = workerID
 	t.Metrics.StartedAt = time.Now()
 	c.workerLoad.TaskStarted(workerID)
+	c.workerLoad.AllocResources(workerID, t.Resources.Memory, t.Resources.CPUCores, t.Resources.GPUs)
 	if err := c.persist.Save(t); err != nil {
 		c.log.Error("failed to persist dispatch state", "id", id, "err", err)
 	}

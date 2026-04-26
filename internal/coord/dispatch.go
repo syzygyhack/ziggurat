@@ -278,11 +278,16 @@ func (d *Dispatcher) buildCandidates(task *model.Task) []scheduler.Candidate {
 		if !matchesResources(task.Resources, n.Capabilities) {
 			continue
 		}
-		candidates = append(candidates, scheduler.Candidate{
+		c := scheduler.Candidate{
 			NodeID: n.ID,
 			Tags:   n.Tags,
 			Caps:   n.Capabilities,
-		})
+		}
+		// Check dynamic resource availability (total - currently allocated).
+		if !scheduler.Fits(task, c, d.coord.workerLoad) {
+			continue
+		}
+		candidates = append(candidates, c)
 	}
 	return candidates
 }

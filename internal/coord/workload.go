@@ -3,14 +3,25 @@ package coord
 import (
 	"runtime"
 	"sync"
+
+	"github.com/syzygyhack/ziggurat/internal/scheduler"
 )
 
-// WorkerLoad tracks per-worker running task counts and concurrency limits.
-// Implements scheduler.NodeLoad.
+// WorkerLoad tracks per-worker running task counts, concurrency limits,
+// and allocated resources. Implements scheduler.NodeLoad and
+// scheduler.ResourceTracker.
 type WorkerLoad struct {
 	mu      sync.RWMutex
 	running map[string]int // nodeID -> running task count
 	limits  map[string]int // nodeID -> concurrency limit
+	alloc   map[string]*allocState // nodeID -> allocated resources
+}
+
+// allocState tracks resources allocated to running tasks on a single worker.
+type allocState struct {
+	memory   int64
+	cpuCores int
+	gpus     int
 }
 
 // NewWorkerLoad creates a WorkerLoad tracker.
@@ -18,6 +29,7 @@ func NewWorkerLoad() *WorkerLoad {
 	return &WorkerLoad{
 		running: make(map[string]int),
 		limits:  make(map[string]int),
+		alloc:   make(map[string]*allocState),
 	}
 }
 
@@ -47,6 +59,56 @@ func (wl *WorkerLoad) TaskFinished(nodeID string) {
 		wl.running[nodeID]--
 	}
 	wl.mu.Unlock()
+}
+
+// AllocResources adds the task's resource requests to the worker's allocated total.
+func (wl *WorkerLoad) AllocResources(nodeID string, memory int64, cpuCores, gpus int) {
+	wl.mu.Lock()
+	a := wl.alloc[nodeID]
+	if a == nil {
+		a = &allocState{}
+		wl.alloc[nodeID] = a
+	}
+	a.memory += memory
+	a.cpuCores += cpuCores
+	a.gpus += gpus
+	wl.mu.Unlock()
+}
+
+// ReleaseResources removes the task's resource requests from the worker's allocated total.
+func (wl *WorkerLoad) ReleaseResources(nodeID string, memory int64, cpuCores, gpus int) {
+	wl.mu.Lock()
+	if a, ok := wl.alloc[nodeID]; ok {
+		a.memory -= memory
+		if a.memory < 0 {
+			a.memory = 0
+		}
+		a.cpuCores -= cpuCores
+		if a.cpuCores < 0 {
+			a.cpuCores = 0
+		}
+		a.gpus -= gpus
+		if a.gpus < 0 {
+			a.gpus = 0
+		}
+	}
+	wl.mu.Unlock()
+}
+
+// Allocated returns the resources currently allocated to running tasks on a node.
+// Implements scheduler.ResourceTracker.
+func (wl *WorkerLoad) Allocated(nodeID string) scheduler.AllocatedResources {
+	wl.mu.RLock()
+	defer wl.mu.RUnlock()
+	a := wl.alloc[nodeID]
+	if a == nil {
+		return scheduler.AllocatedResources{}
+	}
+	return scheduler.AllocatedResources{
+		Memory:   a.memory,
+		CPUCores: a.cpuCores,
+		GPUs:     a.gpus,
+	}
 }
 
 // SetLimit sets the concurrency limit for a worker.
