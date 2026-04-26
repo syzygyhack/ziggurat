@@ -13,10 +13,15 @@ import (
 	"time"
 
 	"github.com/syzygyhack/ziggurat/internal/config"
+	"github.com/syzygyhack/ziggurat/internal/dbutil"
 	"github.com/syzygyhack/ziggurat/internal/model"
 	"github.com/zeebo/blake3"
 	"go.etcd.io/bbolt"
 )
+
+// objectsDBVersion is the current schema version for objects.db.
+// Increment when making breaking changes to the objects or namespaces buckets.
+const objectsDBVersion = 1
 
 // ShardFetcher fetches individual EC shards from remote nodes.
 // Used by getByHashEC for cross-node reconstruction when local shards
@@ -57,6 +62,12 @@ func New(cfg config.StorageConfig, dataDir string, log *slog.Logger) (*Store, er
 	db, err := bbolt.Open(filepath.Join(metaDir, "objects.db"), 0o644, nil)
 	if err != nil {
 		return nil, fmt.Errorf("open metadata db: %w", err)
+	}
+
+	// Check schema version before accessing data.
+	if err := dbutil.CheckSchema(db, "objects.db", objectsDBVersion); err != nil {
+		db.Close()
+		return nil, err
 	}
 
 	// Ensure buckets exist.
