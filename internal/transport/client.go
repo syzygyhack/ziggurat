@@ -122,6 +122,25 @@ func (c *Client) RetireReplica(ctx context.Context, addr string, hash string) er
 	return nil
 }
 
+// CancelTask sends a cancel request to a remote node for a specific task.
+// The remote node's coordinator handles the state transition and process
+// termination (SIGTERM -> grace -> SIGKILL).
+func (c *Client) CancelTask(ctx context.Context, addr string, taskID string) error {
+	cc, err := c.conn(addr)
+	if err != nil {
+		return err
+	}
+	client := pb.NewZigguratNodeClient(cc)
+	resp, err := client.CancelTask(ctx, &pb.CancelTaskRequest{TaskId: taskID})
+	if err != nil {
+		return fmt.Errorf("cancel task on %s: %w", addr, err)
+	}
+	if !resp.Ok {
+		return fmt.Errorf("cancel task rejected by %s: %s", addr, resp.Error)
+	}
+	return nil
+}
+
 // PullObject downloads an object by content hash from a remote node.
 // Implements coord.TaskDispatcher.
 func (c *Client) PullObject(ctx context.Context, addr string, hash string) (io.ReadCloser, error) {

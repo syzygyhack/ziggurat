@@ -511,3 +511,60 @@ func TestTransport_PullShard_NotFound(t *testing.T) {
 		t.Fatal("expected error for non-existent shard")
 	}
 }
+
+func TestTransport_CancelTask(t *testing.T) {
+	env := setupTestEnv(t)
+
+	// Submit a task and manually move it to running state so cancel has
+	// something to work with.
+	task := &model.Task{
+		ID:      "cancel-test-1",
+		Command: []string{"sleep", "60"},
+	}
+	if err := env.coord.AcceptDispatch(context.Background(), task); err != nil {
+		t.Fatal(err)
+	}
+
+	// Dequeue and mark running to simulate a worker picking it up.
+	dequeued := env.coord.Dequeue(nil, nil)
+	if dequeued == nil {
+		t.Fatal("expected to dequeue task")
+	}
+	// Register a cancel function so the coordinator has something to call.
+	var cancelled bool
+	env.coord.RegisterCancel(dequeued.ID, func() { cancelled = true })
+	env.coord.MarkRunning(dequeued.ID, "test-worker")
+
+	// Cancel via gRPC.
+	client := NewClient()
+	defer client.Close()
+
+	err := client.CancelTask(context.Background(), env.addr, "cancel-test-1")
+	if err != nil {
+		t.Fatalf("CancelTask failed: %v", err)
+	}
+
+	// Verify the task is now in cancelling state and the cancel func was called.
+	got, err := env.coord.Get("cancel-test-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != model.TaskCancelling {
+		t.Fatalf("expected TaskCancelling, got %s", got.Status)
+	}
+	if !cancelled {
+		t.Fatal("expected cancel function to be called")
+	}
+}
+
+func TestTransport_CancelTask_NotFound(t *testing.T) {
+	env := setupTestEnv(t)
+
+	client := NewClient()
+	defer client.Close()
+
+	err := client.CancelTask(context.Background(), env.addr, "nonexistent-task")
+	if err != nil {
+		t.Fatalf("CancelTask should not error for not-found task, got: %v", err)
+	}
+}

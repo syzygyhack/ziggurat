@@ -973,6 +973,102 @@ func (x *RetireReplicaResponse) GetError() string {
 	return ""
 }
 
+type CancelTaskRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	TaskId        string                 `protobuf:"bytes,1,opt,name=task_id,json=taskId,proto3" json:"task_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CancelTaskRequest) Reset() {
+	*x = CancelTaskRequest{}
+	mi := &file_ziggurat_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CancelTaskRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CancelTaskRequest) ProtoMessage() {}
+
+func (x *CancelTaskRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ziggurat_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CancelTaskRequest.ProtoReflect.Descriptor instead.
+func (*CancelTaskRequest) Descriptor() ([]byte, []int) {
+	return file_ziggurat_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *CancelTaskRequest) GetTaskId() string {
+	if x != nil {
+		return x.TaskId
+	}
+	return ""
+}
+
+type CancelTaskResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
+	Error         string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CancelTaskResponse) Reset() {
+	*x = CancelTaskResponse{}
+	mi := &file_ziggurat_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CancelTaskResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CancelTaskResponse) ProtoMessage() {}
+
+func (x *CancelTaskResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_ziggurat_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CancelTaskResponse.ProtoReflect.Descriptor instead.
+func (*CancelTaskResponse) Descriptor() ([]byte, []int) {
+	return file_ziggurat_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *CancelTaskResponse) GetOk() bool {
+	if x != nil {
+		return x.Ok
+	}
+	return false
+}
+
+func (x *CancelTaskResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
 var File_ziggurat_proto protoreflect.FileDescriptor
 
 const file_ziggurat_proto_rawDesc = "" +
@@ -1062,7 +1158,12 @@ const file_ziggurat_proto_rawDesc = "" +
 	"\x04hash\x18\x01 \x01(\tR\x04hash\"=\n" +
 	"\x15RetireReplicaResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error2\xc0\x03\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\",\n" +
+	"\x11CancelTaskRequest\x12\x17\n" +
+	"\atask_id\x18\x01 \x01(\tR\x06taskId\":\n" +
+	"\x12CancelTaskResponse\x12\x0e\n" +
+	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error2\x89\x04\n" +
 	"\fZigguratNode\x12M\n" +
 	"\fDispatchTask\x12\x1d.ziggurat.DispatchTaskRequest\x1a\x1e.ziggurat.DispatchTaskResponse\x12G\n" +
 	"\n" +
@@ -1070,7 +1171,9 @@ const file_ziggurat_proto_rawDesc = "" +
 	"\tPullShard\x12\x1a.ziggurat.PullShardRequest\x1a\x13.ziggurat.ShardData0\x01\x12B\n" +
 	"\tPushShard\x12\x16.ziggurat.PushShardMsg\x1a\x1b.ziggurat.PushShardResponse(\x01\x12B\n" +
 	"\vPullECShard\x12\x1c.ziggurat.PullECShardRequest\x1a\x13.ziggurat.ShardData0\x01\x12P\n" +
-	"\rRetireReplica\x12\x1e.ziggurat.RetireReplicaRequest\x1a\x1f.ziggurat.RetireReplicaResponseB6Z4github.com/syzygyhack/ziggurat/internal/transport/pbb\x06proto3"
+	"\rRetireReplica\x12\x1e.ziggurat.RetireReplicaRequest\x1a\x1f.ziggurat.RetireReplicaResponse\x12G\n" +
+	"\n" +
+	"CancelTask\x12\x1b.ziggurat.CancelTaskRequest\x1a\x1c.ziggurat.CancelTaskResponseB6Z4github.com/syzygyhack/ziggurat/internal/transport/pbb\x06proto3"
 
 var (
 	file_ziggurat_proto_rawDescOnce sync.Once
@@ -1084,7 +1187,7 @@ func file_ziggurat_proto_rawDescGZIP() []byte {
 	return file_ziggurat_proto_rawDescData
 }
 
-var file_ziggurat_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_ziggurat_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_ziggurat_proto_goTypes = []any{
 	(*DispatchTaskRequest)(nil),   // 0: ziggurat.DispatchTaskRequest
 	(*TaskResources)(nil),         // 1: ziggurat.TaskResources
@@ -1100,14 +1203,16 @@ var file_ziggurat_proto_goTypes = []any{
 	(*PullECShardRequest)(nil),    // 11: ziggurat.PullECShardRequest
 	(*RetireReplicaRequest)(nil),  // 12: ziggurat.RetireReplicaRequest
 	(*RetireReplicaResponse)(nil), // 13: ziggurat.RetireReplicaResponse
-	nil,                           // 14: ziggurat.DispatchTaskRequest.EnvEntry
-	nil,                           // 15: ziggurat.DispatchTaskRequest.InputRefsEntry
-	nil,                           // 16: ziggurat.DispatchTaskRequest.ParamsEntry
+	(*CancelTaskRequest)(nil),     // 14: ziggurat.CancelTaskRequest
+	(*CancelTaskResponse)(nil),    // 15: ziggurat.CancelTaskResponse
+	nil,                           // 16: ziggurat.DispatchTaskRequest.EnvEntry
+	nil,                           // 17: ziggurat.DispatchTaskRequest.InputRefsEntry
+	nil,                           // 18: ziggurat.DispatchTaskRequest.ParamsEntry
 }
 var file_ziggurat_proto_depIdxs = []int32{
-	14, // 0: ziggurat.DispatchTaskRequest.env:type_name -> ziggurat.DispatchTaskRequest.EnvEntry
-	15, // 1: ziggurat.DispatchTaskRequest.input_refs:type_name -> ziggurat.DispatchTaskRequest.InputRefsEntry
-	16, // 2: ziggurat.DispatchTaskRequest.params:type_name -> ziggurat.DispatchTaskRequest.ParamsEntry
+	16, // 0: ziggurat.DispatchTaskRequest.env:type_name -> ziggurat.DispatchTaskRequest.EnvEntry
+	17, // 1: ziggurat.DispatchTaskRequest.input_refs:type_name -> ziggurat.DispatchTaskRequest.InputRefsEntry
+	18, // 2: ziggurat.DispatchTaskRequest.params:type_name -> ziggurat.DispatchTaskRequest.ParamsEntry
 	2,  // 3: ziggurat.DispatchTaskRequest.environment:type_name -> ziggurat.TaskEnvironment
 	1,  // 4: ziggurat.DispatchTaskRequest.resources:type_name -> ziggurat.TaskResources
 	9,  // 5: ziggurat.PushShardMsg.header:type_name -> ziggurat.PushShardHeader
@@ -1117,14 +1222,16 @@ var file_ziggurat_proto_depIdxs = []int32{
 	8,  // 9: ziggurat.ZigguratNode.PushShard:input_type -> ziggurat.PushShardMsg
 	11, // 10: ziggurat.ZigguratNode.PullECShard:input_type -> ziggurat.PullECShardRequest
 	12, // 11: ziggurat.ZigguratNode.RetireReplica:input_type -> ziggurat.RetireReplicaRequest
-	3,  // 12: ziggurat.ZigguratNode.DispatchTask:output_type -> ziggurat.DispatchTaskResponse
-	5,  // 13: ziggurat.ZigguratNode.TaskResult:output_type -> ziggurat.TaskResultResponse
-	7,  // 14: ziggurat.ZigguratNode.PullShard:output_type -> ziggurat.ShardData
-	10, // 15: ziggurat.ZigguratNode.PushShard:output_type -> ziggurat.PushShardResponse
-	7,  // 16: ziggurat.ZigguratNode.PullECShard:output_type -> ziggurat.ShardData
-	13, // 17: ziggurat.ZigguratNode.RetireReplica:output_type -> ziggurat.RetireReplicaResponse
-	12, // [12:18] is the sub-list for method output_type
-	6,  // [6:12] is the sub-list for method input_type
+	14, // 12: ziggurat.ZigguratNode.CancelTask:input_type -> ziggurat.CancelTaskRequest
+	3,  // 13: ziggurat.ZigguratNode.DispatchTask:output_type -> ziggurat.DispatchTaskResponse
+	5,  // 14: ziggurat.ZigguratNode.TaskResult:output_type -> ziggurat.TaskResultResponse
+	7,  // 15: ziggurat.ZigguratNode.PullShard:output_type -> ziggurat.ShardData
+	10, // 16: ziggurat.ZigguratNode.PushShard:output_type -> ziggurat.PushShardResponse
+	7,  // 17: ziggurat.ZigguratNode.PullECShard:output_type -> ziggurat.ShardData
+	13, // 18: ziggurat.ZigguratNode.RetireReplica:output_type -> ziggurat.RetireReplicaResponse
+	15, // 19: ziggurat.ZigguratNode.CancelTask:output_type -> ziggurat.CancelTaskResponse
+	13, // [13:20] is the sub-list for method output_type
+	6,  // [6:13] is the sub-list for method input_type
 	6,  // [6:6] is the sub-list for extension type_name
 	6,  // [6:6] is the sub-list for extension extendee
 	0,  // [0:6] is the sub-list for field type_name
@@ -1145,7 +1252,7 @@ func file_ziggurat_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ziggurat_proto_rawDesc), len(file_ziggurat_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   17,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

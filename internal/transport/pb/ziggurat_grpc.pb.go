@@ -25,6 +25,7 @@ const (
 	ZigguratNode_PushShard_FullMethodName     = "/ziggurat.ZigguratNode/PushShard"
 	ZigguratNode_PullECShard_FullMethodName   = "/ziggurat.ZigguratNode/PullECShard"
 	ZigguratNode_RetireReplica_FullMethodName = "/ziggurat.ZigguratNode/RetireReplica"
+	ZigguratNode_CancelTask_FullMethodName    = "/ziggurat.ZigguratNode/CancelTask"
 )
 
 // ZigguratNodeClient is the client API for ZigguratNode service.
@@ -56,6 +57,11 @@ type ZigguratNodeClient interface {
 	// Unpins and decrements the refcount, allowing GC to reclaim it after
 	// the grace period. Used when the origin node's GC collects an object.
 	RetireReplica(ctx context.Context, in *RetireReplicaRequest, opts ...grpc.CallOption) (*RetireReplicaResponse, error)
+	// CancelTask requests cancellation of a task running on this node.
+	// The coordinator sends this to the worker node when a user cancels a
+	// remotely dispatched task. The worker sends SIGTERM to the process
+	// group and follows the configured grace period before SIGKILL.
+	CancelTask(ctx context.Context, in *CancelTaskRequest, opts ...grpc.CallOption) (*CancelTaskResponse, error)
 }
 
 type zigguratNodeClient struct {
@@ -147,6 +153,16 @@ func (c *zigguratNodeClient) RetireReplica(ctx context.Context, in *RetireReplic
 	return out, nil
 }
 
+func (c *zigguratNodeClient) CancelTask(ctx context.Context, in *CancelTaskRequest, opts ...grpc.CallOption) (*CancelTaskResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CancelTaskResponse)
+	err := c.cc.Invoke(ctx, ZigguratNode_CancelTask_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ZigguratNodeServer is the server API for ZigguratNode service.
 // All implementations must embed UnimplementedZigguratNodeServer
 // for forward compatibility.
@@ -176,6 +192,11 @@ type ZigguratNodeServer interface {
 	// Unpins and decrements the refcount, allowing GC to reclaim it after
 	// the grace period. Used when the origin node's GC collects an object.
 	RetireReplica(context.Context, *RetireReplicaRequest) (*RetireReplicaResponse, error)
+	// CancelTask requests cancellation of a task running on this node.
+	// The coordinator sends this to the worker node when a user cancels a
+	// remotely dispatched task. The worker sends SIGTERM to the process
+	// group and follows the configured grace period before SIGKILL.
+	CancelTask(context.Context, *CancelTaskRequest) (*CancelTaskResponse, error)
 	mustEmbedUnimplementedZigguratNodeServer()
 }
 
@@ -203,6 +224,9 @@ func (UnimplementedZigguratNodeServer) PullECShard(*PullECShardRequest, grpc.Ser
 }
 func (UnimplementedZigguratNodeServer) RetireReplica(context.Context, *RetireReplicaRequest) (*RetireReplicaResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RetireReplica not implemented")
+}
+func (UnimplementedZigguratNodeServer) CancelTask(context.Context, *CancelTaskRequest) (*CancelTaskResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CancelTask not implemented")
 }
 func (UnimplementedZigguratNodeServer) mustEmbedUnimplementedZigguratNodeServer() {}
 func (UnimplementedZigguratNodeServer) testEmbeddedByValue()                      {}
@@ -308,6 +332,24 @@ func _ZigguratNode_RetireReplica_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ZigguratNode_CancelTask_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CancelTaskRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ZigguratNodeServer).CancelTask(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ZigguratNode_CancelTask_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ZigguratNodeServer).CancelTask(ctx, req.(*CancelTaskRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ZigguratNode_ServiceDesc is the grpc.ServiceDesc for ZigguratNode service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -326,6 +368,10 @@ var ZigguratNode_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RetireReplica",
 			Handler:    _ZigguratNode_RetireReplica_Handler,
+		},
+		{
+			MethodName: "CancelTask",
+			Handler:    _ZigguratNode_CancelTask_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

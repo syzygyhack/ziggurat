@@ -36,6 +36,8 @@ type TaskDispatcher interface {
 	FetchResult(ctx context.Context, addr string, taskID string) (*DispatchResult, error)
 	// PullObject downloads an object by content hash from a remote node.
 	PullObject(ctx context.Context, addr string, hash string) (io.ReadCloser, error)
+	// CancelTask sends a cancel request to a remote node for a running task.
+	CancelTask(ctx context.Context, addr string, taskID string) error
 }
 
 // Dispatcher moves tasks from the local queue to remote nodes. On a hybrid
@@ -167,6 +169,18 @@ func (d *Dispatcher) dispatchBatch(ctx context.Context) {
 		d.dispatchedMu.Lock()
 		d.dispatched[task.ID] = node.GRPCAddress
 		d.dispatchedMu.Unlock()
+
+		// Register a cancel function so that coordinator.Cancel() can
+		// propagate cancellation to the remote worker via gRPC.
+		remoteAddr := node.GRPCAddress
+		taskID := task.ID
+		d.coord.RegisterCancel(taskID, func() {
+			cancelCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := d.transport.CancelTask(cancelCtx, remoteAddr, taskID); err != nil {
+				d.log.Warn("remote cancel failed", "task", taskID, "addr", remoteAddr, "err", err)
+			}
+		})
 
 		d.log.Info("task dispatched to remote node",
 			"task", task.ID, "target", target.NodeID, "addr", node.GRPCAddress)

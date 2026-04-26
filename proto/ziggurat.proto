@@ -34,6 +34,12 @@ service ZigguratNode {
   // Unpins and decrements the refcount, allowing GC to reclaim it after
   // the grace period. Used when the origin node's GC collects an object.
   rpc RetireReplica(RetireReplicaRequest) returns (RetireReplicaResponse);
+
+  // CancelTask requests cancellation of a task running on this node.
+  // The coordinator sends this to the worker node when a user cancels a
+  // remotely dispatched task. The worker sends SIGTERM to the process
+  // group and follows the configured grace period before SIGKILL.
+  rpc CancelTask(CancelTaskRequest) returns (CancelTaskResponse);
 }
 
 // --- Task dispatch ---
@@ -140,6 +146,17 @@ message RetireReplicaRequest {
 }
 
 message RetireReplicaResponse {
+  bool ok = 1;
+  string error = 2;
+}
+
+// --- Task cancellation ---
+
+message CancelTaskRequest {
+  string task_id = 1;
+}
+
+message CancelTaskResponse {
   bool ok = 1;
   string error = 2;
 }

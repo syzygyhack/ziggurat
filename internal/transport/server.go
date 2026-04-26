@@ -402,6 +402,25 @@ func (s *Server) RetireReplica(ctx context.Context, req *pb.RetireReplicaRequest
 	return &pb.RetireReplicaResponse{Ok: true}, nil
 }
 
+// CancelTask handles a remote cancel request by forwarding it to the local
+// coordinator. The coordinator's Cancel method handles the state machine
+// (QUEUED->CANCELLED, RUNNING->CANCELLING with SIGTERM, etc.).
+func (s *Server) CancelTask(ctx context.Context, req *pb.CancelTaskRequest) (*pb.CancelTaskResponse, error) {
+	if req.TaskId == "" {
+		return &pb.CancelTaskResponse{Ok: false, Error: "empty task_id"}, nil
+	}
+
+	_, err := s.coord.Cancel(req.TaskId)
+	if err != nil {
+		// Task not found is not a hard error — it may have already completed
+		// or been cleaned up. Return ok=true with a note.
+		return &pb.CancelTaskResponse{Ok: true, Error: err.Error()}, nil
+	}
+
+	s.log.Info("task cancel propagated", "task", req.TaskId)
+	return &pb.CancelTaskResponse{Ok: true}, nil
+}
+
 // protoToTask converts a DispatchTaskRequest to a model.Task.
 func protoToTask(req *pb.DispatchTaskRequest) *model.Task {
 	t := &model.Task{
