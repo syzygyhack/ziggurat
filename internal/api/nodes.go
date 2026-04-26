@@ -2,16 +2,34 @@ package api
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 )
 
+// localNodeInfo returns a richer self-description for single-node mode.
+func (s *Server) localNodeInfo() map[string]any {
+	stats := s.store.Stats()
+	role := s.role
+	if role == "" {
+		role = "hybrid"
+	}
+	return map[string]any{
+		"id":             "local",
+		"name":           "local",
+		"role":           role,
+		"status":         s.clusterStatusLabel(),
+		"tasks_running":  s.coord.RunningCount(),
+		"tasks_queued":   s.coord.QueueLen(),
+		"storage_used":   stats.UsedBytes,
+		"storage_objects": stats.Objects,
+		"uptime_seconds": int(time.Since(s.startTime).Seconds()),
+	}
+}
+
 func (s *Server) listNodes(w http.ResponseWriter, r *http.Request) {
 	if s.nodes == nil {
-		// Single-node mode: return a minimal self-description.
-		writeJSON(w, http.StatusOK, []map[string]any{
-			{"id": "local", "name": "local", "status": "healthy"},
-		})
+		writeJSON(w, http.StatusOK, []map[string]any{s.localNodeInfo()})
 		return
 	}
 	writeJSON(w, http.StatusOK, s.nodes.List())
@@ -22,9 +40,7 @@ func (s *Server) getNode(w http.ResponseWriter, r *http.Request) {
 
 	if s.nodes == nil {
 		if id == "local" {
-			writeJSON(w, http.StatusOK, map[string]any{
-				"id": "local", "name": "local", "status": "healthy",
-			})
+			writeJSON(w, http.StatusOK, s.localNodeInfo())
 			return
 		}
 		writeError(w, http.StatusNotFound, "node not found: "+id)
@@ -56,7 +72,7 @@ func (s *Server) resume(w http.ResponseWriter, r *http.Request) {
 	s.coord.Undrain()
 
 	resp := map[string]any{
-		"status":        "running",
+		"status":        s.clusterStatusLabel(),
 		"tasks_running": s.coord.RunningCount(),
 		"tasks_queued":  s.coord.QueueLen(),
 	}

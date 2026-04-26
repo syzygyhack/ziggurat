@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -28,7 +29,16 @@ func apiBase() string {
 		return "http://" + env
 	}
 	// Try loading client.addr from config file.
-	if cfg, err := config.LoadConfig(cfgFile); err == nil && cfg.Client.Addr != "" {
+	cfg, err := config.LoadConfig(cfgFile)
+	if err != nil {
+		// Explicit --config that fails to load is a hard error — the user
+		// specified a file, so silently falling back could talk to the wrong
+		// cluster. Auto-discovery failure (no file) is fine — use default.
+		if cfgFile != "" {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+	} else if cfg.Client.Addr != "" {
 		return "http://" + cfg.Client.Addr
 	}
 	return "http://127.0.0.1:7100"
@@ -146,4 +156,15 @@ func printJSON(v any) {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	enc.Encode(v)
+}
+
+// storeKeyPath returns "/store/<escaped-key>" suitable for use in API URLs.
+// Each segment of the key is path-escaped to handle spaces, ?, #, % etc.,
+// but forward slashes are preserved as path separators.
+func storeKeyPath(key string) string {
+	segments := strings.Split(key, "/")
+	for i, s := range segments {
+		segments[i] = url.PathEscape(s)
+	}
+	return "/store/" + strings.Join(segments, "/")
 }

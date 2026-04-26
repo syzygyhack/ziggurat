@@ -12,6 +12,7 @@ func newDeadLetterCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "dead-letter",
 		Short: "List dead-lettered tasks (retries exhausted)",
+		Args:  cobra.NoArgs,
 		RunE:  runDeadLetter,
 	}
 }

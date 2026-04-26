@@ -22,6 +22,7 @@ func newStartCmd() *cobra.Command {
 		Use:   "start",
 		Short: "Start the ziggurat node",
 		Long:  `Starts the ziggurat node, initializing storage, compute, and the HTTP API server.`,
+		Args:  cobra.NoArgs,
 		RunE:  runStart,
 	}
 	cmd.Flags().StringArrayVar(&startJoin, "join", nil, "address of existing node to join (repeatable)")

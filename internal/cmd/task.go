@@ -54,7 +54,10 @@ func runTask(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Command:   %s\n", strings.Join(parts, " "))
 	}
 
-	fmt.Printf("Exit Code: %d\n", int(exitCode))
+	switch status {
+	case "completed", "failed", "cancelled", "dead_letter":
+		fmt.Printf("Exit Code: %d\n", int(exitCode))
+	}
 	if worker != "" {
 		fmt.Printf("Worker:    %s\n", worker)
 	}

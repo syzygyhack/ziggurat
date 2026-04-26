@@ -15,6 +15,7 @@ func newTasksCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "tasks",
 		Short: "List all tasks",
+		Args:  cobra.NoArgs,
 		RunE:  runTasks,
 	}
 	cmd.Flags().StringVar(&tasksStatus, "status", "", "filter by status (queued, running, completed, failed, cancelled, dead_letter)")
@@ -88,7 +89,11 @@ func runTasks(cmd *cobra.Command, args []string) error {
 		if node == "" {
 			node = "--"
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%d\n", id, status, node, cmdStr, wall, int(exitCode))
+		exitStr := "--"
+		if status == "completed" || status == "failed" || status == "cancelled" || status == "dead_letter" {
+			exitStr = fmt.Sprintf("%d", int(exitCode))
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", id, status, node, cmdStr, wall, exitStr)
 	}
 	w.Flush()
 	return nil

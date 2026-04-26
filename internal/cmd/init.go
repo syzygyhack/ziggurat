@@ -17,6 +17,7 @@ func newInitCmd() *cobra.Command {
 directory (~/.ziggurat/). The node is immediately startable after init.
 
 If a config file already exists at that path, init refuses to overwrite it.`,
+		Args: cobra.NoArgs,
 		RunE: runInit,
 	}
 }
@@ -54,6 +55,10 @@ storage:
   replication_factor: 2
   # capacity: 0                 # max bytes (0 = unlimited)
   gc_grace_period: 1h
+  # erasure:                    # Reed-Solomon coding for large objects (> 64 MB)
+  #   enabled: true             # enabled by default
+  #   data_shards: 4            # k: shards needed to reconstruct
+  #   parity_shards: 2          # m: redundancy shards (needs k+m nodes)
 
 compute:
   # concurrency: 0              # max parallel tasks (0 = NumCPU)

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"net/url"
 
 	"github.com/spf13/cobra"
 )
@@ -29,7 +30,7 @@ func runLs(cmd *cobra.Command, args []string) error {
 
 	path := "/store"
 	if prefix != "" {
-		path += "?prefix=" + prefix
+		path += "?prefix=" + url.QueryEscape(prefix)
 	}
 
 	resp, err := doGet(path)

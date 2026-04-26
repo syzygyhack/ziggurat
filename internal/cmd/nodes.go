@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -13,6 +14,7 @@ func newNodesCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "nodes",
 		Short: "List cluster nodes",
+		Args:  cobra.NoArgs,
 		RunE:  runNodes,
 	}
 }
@@ -39,11 +41,15 @@ func runNodes(cmd *cobra.Command, args []string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tNAME\tADDRESS\tROLE\tTAGS")
+	fmt.Fprintln(w, "ID\tNAME\tHTTP\tROLE\tTAGS")
 	for _, n := range nodes {
 		id, _ := n["id"].(string)
 		name, _ := n["name"].(string)
-		addr, _ := n["address"].(string)
+		addr, _ := n["http_address"].(string)
+		if addr == "" {
+			// Fall back to gossip address for nodes that don't advertise HTTP.
+			addr, _ = n["address"].(string)
+		}
 		role, _ := n["role"].(string)
 
 		if len(id) > 8 {
@@ -103,13 +109,26 @@ func runNode(cmd *cobra.Command, args []string) error {
 
 	id, _ := node["id"].(string)
 	name, _ := node["name"].(string)
-	address, _ := node["address"].(string)
 	role, _ := node["role"].(string)
+	httpAddr, _ := node["http_address"].(string)
+	grpcAddr, _ := node["grpc_address"].(string)
+	gossipAddr, _ := node["address"].(string)
 
 	fmt.Printf("ID:       %s\n", id)
 	fmt.Printf("Name:     %s\n", name)
-	fmt.Printf("Address:  %s\n", address)
+	if role == "" {
+		role = "hybrid"
+	}
 	fmt.Printf("Role:     %s\n", role)
+	if httpAddr != "" {
+		fmt.Printf("HTTP:     %s\n", httpAddr)
+	}
+	if grpcAddr != "" {
+		fmt.Printf("gRPC:     %s\n", grpcAddr)
+	}
+	if gossipAddr != "" {
+		fmt.Printf("Gossip:   %s\n", gossipAddr)
+	}
 
 	if tags, ok := node["tags"].([]any); ok && len(tags) > 0 {
 		var parts []string
@@ -126,6 +145,20 @@ func runNode(cmd *cobra.Command, args []string) error {
 		for k, v := range caps {
 			fmt.Printf("  %-20s %v\n", k+":", v)
 		}
+	}
+
+	// Load/status fields (available from enriched node info).
+	if status, ok := node["status"].(string); ok && status != "" {
+		fmt.Printf("\nStatus:   %s\n", status)
+	}
+	if running := intFromAny(node["tasks_running"]); running > 0 {
+		fmt.Printf("Running:  %d\n", running)
+	}
+	if queued := intFromAny(node["tasks_queued"]); queued > 0 {
+		fmt.Printf("Queued:   %d\n", queued)
+	}
+	if uptime := intFromAny(node["uptime_seconds"]); uptime > 0 {
+		fmt.Printf("Uptime:   %s\n", formatDuration(time.Duration(uptime)*time.Second))
 	}
 
 	return nil

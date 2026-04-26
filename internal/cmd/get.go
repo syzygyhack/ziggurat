@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -27,18 +27,23 @@ func newGetCmd() *cobra.Command {
 func runGet(cmd *cobra.Command, args []string) error {
 	key := args[0]
 
-	resp, err := doGet("/store/" + key)
+	resp, err := doGet(storeKeyPath(key))
 	if err != nil {
 		return fmt.Errorf("get object: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("server: %s", string(body))
+		var errBody struct {
+			Error string `json:"error"`
+		}
+		if decErr := json.NewDecoder(resp.Body).Decode(&errBody); decErr == nil && errBody.Error != "" {
+			return fmt.Errorf("server: %s", errBody.Error)
+		}
+		return fmt.Errorf("server returned %d", resp.StatusCode)
 	}
 
-	// Extract mode: read body and extract tar into destination.
+	// Extract mode: stream tar directly from response into destination.
 	if getExtract {
 		if len(args) < 2 {
 			return fmt.Errorf("--extract requires a destination directory argument")
@@ -47,11 +52,7 @@ func runGet(cmd *cobra.Command, args []string) error {
 		if err := os.MkdirAll(dest, 0o755); err != nil {
 			return err
 		}
-		data, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return fmt.Errorf("read response: %w", err)
-		}
-		if err := store.ExtractTar(bytes.NewReader(data), dest); err != nil {
+		if err := store.ExtractTar(resp.Body, dest); err != nil {
 			return fmt.Errorf("extract tar: %w", err)
 		}
 		return nil

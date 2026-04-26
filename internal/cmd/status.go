@@ -12,6 +12,7 @@ func newStatusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
 		Short: "Show cluster health and status",
+		Args:  cobra.NoArgs,
 		RunE:  runStatus,
 	}
 }
@@ -41,6 +42,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	completed := intVal(data, "tasks_completed")
 	failed := intVal(data, "tasks_failed")
 	cancelled := intVal(data, "tasks_cancelled")
+	deadLetter := intVal(data, "tasks_dead_letter")
 	total := intVal(data, "tasks_total")
 	storeObjects := intVal(data, "storage_objects")
 	storeUsed := intVal(data, "storage_used_bytes")
@@ -55,6 +57,9 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		running, queued, completed, failed)
 	if cancelled > 0 {
 		fmt.Printf(", %d cancelled", cancelled)
+	}
+	if deadLetter > 0 {
+		fmt.Printf(", %d dead-letter", deadLetter)
 	}
 	fmt.Printf("  (%d total)\n", total)
 

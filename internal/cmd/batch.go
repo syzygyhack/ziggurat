@@ -15,6 +15,7 @@ func newBatchCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "batch",
 		Short: "Submit a batch of tasks from a YAML or JSON file",
+		Args:  cobra.NoArgs,
 		RunE:  runBatch,
 	}
 	cmd.Flags().StringVar(&batchFile, "from", "", "path to batch file (YAML or JSON)")
@@ -47,6 +48,13 @@ func runBatch(cmd *cobra.Command, args []string) error {
 	}
 	if len(tasks) == 0 {
 		return fmt.Errorf("batch file contains no tasks")
+	}
+
+	// Reject image field client-side — OCI execution is not yet supported.
+	for i, t := range tasks {
+		if t.Image != "" {
+			return fmt.Errorf("task[%d]: OCI image execution is not yet supported; remove the image field", i)
+		}
 	}
 
 	// Convert to JSON for the API call (yaml tags match json tags).

@@ -22,6 +22,7 @@ If a running node is reachable, also measures HTTP round-trip latency
 to all cluster peers.
 
 Use --skip-network to run only local benchmarks without contacting the cluster.`,
+		Args: cobra.NoArgs,
 		RunE: runBenchmark,
 	}
 	cmd.Flags().BoolVar(&benchSkipNetwork, "skip-network", false, "skip peer latency probes")
@@ -30,7 +31,11 @@ Use --skip-network to run only local benchmarks without contacting the cluster.`
 
 func runBenchmark(cmd *cobra.Command, args []string) error {
 	// Determine disk benchmark directory from config.
-	cfg, _ := config.LoadConfig(cfgFile)
+	cfg, err := config.LoadConfig(cfgFile)
+	if err != nil && cfgFile != "" {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
 	dataDir := ""
 	if cfg != nil {
 		dataDir = cfg.Node.DataDir
@@ -52,7 +57,11 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 	// Network probes.
 	var network *benchmark.NetworkResult
 	if !benchSkipNetwork {
-		peers := discoverPeers()
+		httpPort := 7100
+		if cfg != nil && cfg.Network.HTTPPort != 0 {
+			httpPort = cfg.Network.HTTPPort
+		}
+		peers := discoverPeers(httpPort)
 		if len(peers) > 0 {
 			fmt.Fprintf(os.Stderr, "Probing %d peer(s)...\n", len(peers))
 			network = benchmark.ProbePeers(peers)
@@ -78,8 +87,9 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 }
 
 // discoverPeers fetches the node list from the local API and builds
-// PeerInfo entries. Returns nil if the node is unreachable.
-func discoverPeers() []benchmark.PeerInfo {
+// PeerInfo entries. Returns nil if the node is unreachable. httpPort
+// is the configured HTTP port used when deriving addresses from gossip addresses.
+func discoverPeers(httpPort int) []benchmark.PeerInfo {
 	resp, err := doGet("/nodes")
 	if err != nil {
 		return nil
@@ -108,7 +118,7 @@ func discoverPeers() []benchmark.PeerInfo {
 			// Derive from gossip address: replace port with HTTP default (7100).
 			// This is a best-effort heuristic. In production, nodes would
 			// advertise their HTTP port via metadata.
-			httpAddr = deriveHTTPAddr(address)
+			httpAddr = deriveHTTPAddr(address, httpPort)
 		}
 
 		if id == "" || httpAddr == "" {
@@ -129,8 +139,8 @@ func discoverPeers() []benchmark.PeerInfo {
 }
 
 // deriveHTTPAddr replaces the port in a host:port gossip address with
-// the default HTTP port (7100). Returns empty if the address can't be parsed.
-func deriveHTTPAddr(gossipAddr string) string {
+// the configured HTTP port. Returns empty if the address can't be parsed.
+func deriveHTTPAddr(gossipAddr string, httpPort int) string {
 	if gossipAddr == "" {
 		return ""
 	}
@@ -140,7 +150,7 @@ func deriveHTTPAddr(gossipAddr string) string {
 		return ""
 	}
 	host := gossipAddr[:idx]
-	return host + ":7100"
+	return fmt.Sprintf("%s:%d", host, httpPort)
 }
 
 func printLocalResults(r *benchmark.LocalResult) {

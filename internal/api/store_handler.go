@@ -1,9 +1,13 @@
 package api
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/syzygyhack/ziggurat/internal/store"
 )
 
 func (s *Server) putObject(w http.ResponseWriter, r *http.Request) {
@@ -20,6 +24,12 @@ func (s *Server) putObject(w http.ResponseWriter, r *http.Request) {
 
 	hash, err := s.store.Put(r.Context(), key, body)
 	if err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeError(w, http.StatusRequestEntityTooLarge,
+				fmt.Sprintf("upload exceeds maximum size (%d bytes)", maxErr.Limit))
+			return
+		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -56,6 +66,10 @@ func (s *Server) getObject(w http.ResponseWriter, r *http.Request) {
 	var err error
 	if strings.HasPrefix(key, "@hash/") {
 		hash := strings.TrimPrefix(key, "@hash/")
+		if err := store.ValidateHashHex(hash); err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid hash: %v", err))
+			return
+		}
 		rc, err = s.store.GetByHash(r.Context(), hash)
 	} else {
 		rc, err = s.store.Get(r.Context(), key)

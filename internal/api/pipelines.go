@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -30,6 +31,12 @@ func (s *Server) submitPipeline(w http.ResponseWriter, r *http.Request) {
 	if len(req.Stages) == 0 {
 		writeError(w, http.StatusBadRequest, "pipeline must have at least one stage")
 		return
+	}
+	for i, stage := range req.Stages {
+		if stage.Image != "" {
+			writeError(w, http.StatusNotImplemented, fmt.Sprintf("stage[%d]: OCI image execution is not yet supported", i))
+			return
+		}
 	}
 
 	p := &model.Pipeline{

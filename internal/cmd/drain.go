@@ -11,8 +11,11 @@ func newDrainCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "drain",
 		Short: "Stop accepting new tasks, finish in-flight work",
-		Long:  `Puts the node into drain mode. No new tasks will be dequeued, but running tasks complete normally. Submissions still succeed (tasks queue but won't execute locally).`,
-		RunE:  runDrain,
+		Long: `Puts the node at --addr into drain mode. No new tasks will be dequeued,
+but running tasks complete normally. Submissions still succeed (tasks queue
+but won't execute locally).`,
+		Args: cobra.NoArgs,
+		RunE: runDrain,
 	}
 }
 
@@ -20,7 +23,8 @@ func newResumeCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "resume",
 		Short: "Resume task dequeuing after drain",
-		Long:  `Takes the node out of drain mode, allowing workers to dequeue and execute tasks again.`,
+		Long:  `Takes the node at --addr out of drain mode, allowing workers to dequeue and execute tasks again.`,
+		Args:  cobra.NoArgs,
 		RunE:  runResume,
 	}
 }

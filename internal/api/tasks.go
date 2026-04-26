@@ -42,6 +42,10 @@ func (s *Server) submitTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "command is required")
 		return
 	}
+	if req.Image != "" {
+		writeError(w, http.StatusNotImplemented, "OCI image execution is not yet supported; omit the image field to run on the host OS")
+		return
+	}
 
 	task := &model.Task{
 		Command:     req.Command,
@@ -52,7 +56,6 @@ func (s *Server) submitTask(w http.ResponseWriter, r *http.Request) {
 		Requires:    req.Requires,
 		Constraints: req.Constraints,
 		Resources:   req.Resources,
-		Image:       req.Image,
 		Environment: req.Environment,
 		Config:      req.Config,
 	}
@@ -98,6 +101,10 @@ func (s *Server) submitBatch(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("task[%d]: command is required", i))
 			return
 		}
+		if req.Image != "" {
+			writeError(w, http.StatusNotImplemented, fmt.Sprintf("task[%d]: OCI image execution is not yet supported", i))
+			return
+		}
 		tasks[i] = &model.Task{
 			Command:     req.Command,
 			Env:         req.Env,
@@ -107,7 +114,6 @@ func (s *Server) submitBatch(w http.ResponseWriter, r *http.Request) {
 			Requires:    req.Requires,
 			Constraints: req.Constraints,
 			Resources:   req.Resources,
-			Image:       req.Image,
 			Environment: req.Environment,
 			Config:      req.Config,
 		}

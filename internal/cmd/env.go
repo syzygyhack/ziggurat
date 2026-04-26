@@ -24,6 +24,7 @@ func newEnvListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List persistent environments on this node",
+		Args:  cobra.NoArgs,
 		RunE:  runEnvList,
 	}
 }
@@ -35,6 +36,7 @@ func newEnvPruneCmd() *cobra.Command {
 		Use:   "prune",
 		Short: "Remove stale persistent environments",
 		Long:  `Removes environments that haven't been used within --max-age. Defaults to the configured env_max_age (7 days).`,
+		Args:  cobra.NoArgs,
 		RunE:  runEnvPrune,
 	}
 	cmd.Flags().DurationVar(&envPruneMaxAge, "max-age", 0, "remove envs unused for this duration (default: config value)")
@@ -68,7 +70,7 @@ func runEnvList(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("%-20s %-12s %-24s %s\n", "NAME", "SIZE", "LAST USED", "FINGERPRINT")
 	for _, e := range envs {
-		size := formatSize(e.SizeBytes)
+		size := formatBytes(e.SizeBytes)
 		lu := e.LastUsed.Format("2006-01-02 15:04:05")
 		fp := e.Fingerprint
 		if len(fp) > 16 {
@@ -102,17 +104,4 @@ func runEnvPrune(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Removed %d environment(s).\n", removed)
 	}
 	return nil
-}
-
-func formatSize(bytes int64) string {
-	switch {
-	case bytes >= 1<<30:
-		return fmt.Sprintf("%.1f GB", float64(bytes)/(1<<30))
-	case bytes >= 1<<20:
-		return fmt.Sprintf("%.1f MB", float64(bytes)/(1<<20))
-	case bytes >= 1<<10:
-		return fmt.Sprintf("%.1f KB", float64(bytes)/(1<<10))
-	default:
-		return fmt.Sprintf("%d B", bytes)
-	}
 }

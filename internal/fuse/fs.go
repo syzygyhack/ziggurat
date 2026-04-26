@@ -3,9 +3,12 @@ package fuse
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"syscall"
 	"time"
@@ -168,24 +171,23 @@ func (z *ZigFS) pathPrefix() string {
 
 // listKeys calls the store list API with the given prefix.
 func (z *ZigFS) listKeys(prefix string) ([]string, error) {
-	url := z.apiBase + "/api/v1/store"
+	u := z.apiBase + "/api/v1/store"
 	if prefix != "" {
-		url += "?prefix=" + prefix
+		u += "?prefix=" + url.QueryEscape(prefix)
 	}
-	resp, err := z.client.Get(url)
+	resp, err := z.client.Get(u)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return nil, nil
+		return nil, fmt.Errorf("store list returned %d", resp.StatusCode)
 	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
+	var keys []string
+	if err := json.NewDecoder(resp.Body).Decode(&keys); err != nil {
+		return nil, fmt.Errorf("decode key list: %w", err)
 	}
-	// Parse JSON array of strings.
-	return parseStringArray(body)
+	return keys, nil
 }
 
 // --- File operations ---
@@ -235,22 +237,28 @@ func (f *zigFile) Read(ctx context.Context, fh fs.FileHandle, dest []byte, off i
 }
 
 func (f *zigFile) fetchContent() ([]byte, error) {
-	url := f.apiBase + "/api/v1/store/" + f.key
-	resp, err := f.client.Get(url)
+	u := storeURL(f.apiBase, f.key)
+	resp, err := f.client.Get(u)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("store get %s returned %d", f.key, resp.StatusCode)
+	}
 	return io.ReadAll(resp.Body)
 }
 
 func (f *zigFile) contentSize() (int64, error) {
-	url := f.apiBase + "/api/v1/store/" + f.key
-	resp, err := f.client.Head(url)
+	u := storeURL(f.apiBase, f.key)
+	resp, err := f.client.Head(u)
 	if err != nil {
 		return 0, err
 	}
 	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return 0, fmt.Errorf("store head %s returned %d", f.key, resp.StatusCode)
+	}
 	return resp.ContentLength, nil
 }
 
@@ -298,8 +306,8 @@ func (wf *zigWriteFile) Flush(ctx context.Context) syscall.Errno {
 	if wf.buf.Len() == 0 {
 		return 0
 	}
-	url := wf.apiBase + "/api/v1/store/" + wf.key
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, &wf.buf)
+	u := storeURL(wf.apiBase, wf.key)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, u, &wf.buf)
 	if err != nil {
 		wf.log.Warn("flush: create request failed", "key", wf.key, "err", err)
 		return syscall.EIO
@@ -323,8 +331,8 @@ var _ = (fs.NodeUnlinker)((*ZigFS)(nil))
 
 func (z *ZigFS) Unlink(ctx context.Context, name string) syscall.Errno {
 	key := z.pathPrefix() + name
-	url := z.apiBase + "/api/v1/store/" + key
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+	u := storeURL(z.apiBase, key)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, u, nil)
 	if err != nil {
 		return syscall.EIO
 	}
@@ -339,26 +347,13 @@ func (z *ZigFS) Unlink(ctx context.Context, name string) syscall.Errno {
 	return 0
 }
 
-// parseStringArray is a minimal JSON string-array parser.
-func parseStringArray(data []byte) ([]string, error) {
-	s := strings.TrimSpace(string(data))
-	if s == "null" || s == "[]" {
-		return nil, nil
+// storeURL builds a store API URL with each key segment path-escaped.
+// Forward slashes are preserved as path separators.
+func storeURL(apiBase, key string) string {
+	segments := strings.Split(key, "/")
+	for i, s := range segments {
+		segments[i] = url.PathEscape(s)
 	}
-	// Trim brackets.
-	s = strings.TrimPrefix(s, "[")
-	s = strings.TrimSuffix(s, "]")
-	if s == "" {
-		return nil, nil
-	}
-	parts := strings.Split(s, ",")
-	var result []string
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		p = strings.Trim(p, "\"")
-		if p != "" {
-			result = append(result, p)
-		}
-	}
-	return result, nil
+	return apiBase + "/api/v1/store/" + strings.Join(segments, "/")
 }
+

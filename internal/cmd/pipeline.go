@@ -87,6 +87,13 @@ func runPipelineSubmit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("parse pipeline file: %w", err)
 	}
 
+	// Reject image field client-side — OCI execution is not yet supported.
+	for i, s := range def.Stages {
+		if s.Image != "" {
+			return fmt.Errorf("stage[%d] (%s): OCI image execution is not yet supported; remove the image field", i, s.ID)
+		}
+	}
+
 	// Convert to JSON for the API.
 	jsonData, err := json.Marshal(def)
 	if err != nil {

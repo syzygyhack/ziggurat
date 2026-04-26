@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -31,6 +32,10 @@ func runWaitCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+
+	if !jsonOut {
+		fmt.Fprintf(os.Stderr, "Waiting for task %s...\n", shortID(args[0]))
+	}
 
 	if waitTimeout > 0 {
 		ctx, cancel := context.WithTimeout(cmd.Context(), waitTimeout)

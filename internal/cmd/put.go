@@ -45,7 +45,7 @@ func runPut(cmd *cobra.Command, args []string) error {
 		body = f
 	}
 
-	resp, err := doPut("/store/"+key, body)
+	resp, err := doPut(storeKeyPath(key), body)
 	if err != nil {
 		return fmt.Errorf("put object: %w", err)
 	}

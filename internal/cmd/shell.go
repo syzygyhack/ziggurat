@@ -2,13 +2,16 @@ package cmd
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/syzygyhack/ziggurat/internal/store"
 )
 
 func newShellCmd() *cobra.Command {
@@ -18,6 +21,7 @@ func newShellCmd() *cobra.Command {
 		Long: `Opens an interactive shell connected to the Ziggurat cluster.
 Supports ls, put, get, rm, run, tasks, status, top, nodes, and help commands.
 Type 'exit' or Ctrl+D to quit.`,
+		Args: cobra.NoArgs,
 		RunE: runShell,
 	}
 }
@@ -152,6 +156,12 @@ func buildShellCommands() []shellCommand {
 			usage: "nodes",
 			run:   shellNodes,
 		},
+		{
+			name:  "top",
+			help:  "Cluster dashboard snapshot",
+			usage: "top",
+			run:   shellTop,
+		},
 	}
 }
 
@@ -181,7 +191,7 @@ func shellLs(args []string) error {
 	}
 	path := "/store"
 	if prefix != "" {
-		path += "?prefix=" + prefix
+		path += "?prefix=" + url.QueryEscape(prefix)
 	}
 	resp, err := doGet(path)
 	if err != nil {
@@ -206,13 +216,30 @@ func shellPut(args []string) error {
 		return fmt.Errorf("usage: put <key> <path>")
 	}
 	key, filePath := args[0], args[1]
-	f, err := os.Open(filePath)
+
+	info, err := os.Stat(filePath)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 
-	resp, err := doPut("/store/"+key, f)
+	var body io.Reader
+	if info.IsDir() {
+		pr, pw := io.Pipe()
+		go func() {
+			tarErr := store.CreateDeterministicTar(filePath, pw)
+			pw.CloseWithError(tarErr)
+		}()
+		body = pr
+	} else {
+		f, err := os.Open(filePath)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		body = f
+	}
+
+	resp, err := doPut(storeKeyPath(key), body)
 	if err != nil {
 		return err
 	}
@@ -229,14 +256,20 @@ func shellGet(args []string) error {
 		return fmt.Errorf("usage: get <key> [dest]")
 	}
 	key := args[0]
-	resp, err := doGet("/store/" + key)
+	resp, err := doGet(storeKeyPath(key))
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("server: %s", string(body))
+		// Try to extract structured error; fall back to raw body.
+		var errBody struct {
+			Error string `json:"error"`
+		}
+		if decErr := json.NewDecoder(resp.Body).Decode(&errBody); decErr == nil && errBody.Error != "" {
+			return fmt.Errorf("server: %s", errBody.Error)
+		}
+		return fmt.Errorf("server returned %d", resp.StatusCode)
 	}
 
 	var w io.Writer = os.Stdout
@@ -256,7 +289,7 @@ func shellRm(args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: rm <key>")
 	}
-	resp, err := doDelete("/store/" + args[0])
+	resp, err := doDelete(storeKeyPath(args[0]))
 	if err != nil {
 		return err
 	}
@@ -371,6 +404,15 @@ func shellNodes(args []string) error {
 		addr, _ := n["address"].(string)
 		fmt.Printf("%-10s %-15s %-10s %s\n", shortID(id), name, role, addr)
 	}
+	return nil
+}
+
+func shellTop(args []string) error {
+	snap := fetchTop()
+	if snap.err != nil {
+		return snap.err
+	}
+	renderTop(snap, false)
 	return nil
 }
 

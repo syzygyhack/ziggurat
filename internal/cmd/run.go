@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -104,18 +106,25 @@ func runRun(cmd *cobra.Command, args []string) error {
 	}
 
 	if runImage != "" {
-		body["image"] = runImage
+		return fmt.Errorf("--image: OCI image execution is not yet supported; omit the --image flag to run on the host OS")
 	}
 
 	// Build environment sub-object.
+	if runEnvSetup != "" && runEnv == "" && len(runEnvFingerprint) == 0 {
+		return fmt.Errorf("--env-setup requires --env (environment name) or --env-fingerprint to be reusable")
+	}
 	if runEnv != "" || runEnvSetup != "" || len(runEnvFingerprint) > 0 {
 		envObj := map[string]any{}
 		if runEnv != "" {
 			envObj["name"] = runEnv
 		}
 		if runEnvSetup != "" {
-			// Wrap in shell so the user can write a single string command.
-			envObj["setup"] = []string{"sh", "-c", runEnvSetup}
+			// Wrap in platform shell so the user can write a single string command.
+			if runtime.GOOS == "windows" {
+				envObj["setup"] = []string{"cmd", "/c", runEnvSetup}
+			} else {
+				envObj["setup"] = []string{"sh", "-c", runEnvSetup}
+			}
 		}
 		if len(runEnvFingerprint) > 0 {
 			envObj["fingerprint"] = runEnvFingerprint
@@ -190,7 +199,10 @@ func runRun(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Wait for completion.
+	// Wait for completion — print feedback so the user knows it's not hung.
+	if !jsonOut {
+		fmt.Fprintf(os.Stderr, "Submitted %s, waiting...\n", shortID(id))
+	}
 	resp, err = doPost("/tasks/"+id+"/wait", nil)
 	if err != nil {
 		return fmt.Errorf("wait for task: %w", err)

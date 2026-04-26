@@ -16,7 +16,7 @@ func newRmCmd() *cobra.Command {
 }
 
 func runRm(cmd *cobra.Command, args []string) error {
-	resp, err := doDelete("/store/" + args[0])
+	resp, err := doDelete(storeKeyPath(args[0]))
 	if err != nil {
 		return fmt.Errorf("delete object: %w", err)
 	}

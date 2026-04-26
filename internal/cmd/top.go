@@ -26,6 +26,7 @@ func newTopCmd() *cobra.Command {
 active tasks. Press Ctrl+C to quit.
 
 Use --once for a single snapshot (useful for scripts).`,
+		Args: cobra.NoArgs,
 		RunE: runTop,
 	}
 	cmd.Flags().DurationVarP(&topInterval, "interval", "n", 2*time.Second, "refresh interval")
@@ -233,6 +234,10 @@ func renderTop(snap topSnapshot, interactive bool) {
 }
 
 func runTop(cmd *cobra.Command, args []string) error {
+	if topInterval <= 0 && !topOnce && !jsonOut {
+		return fmt.Errorf("--interval must be positive (got %s); use --once for a single snapshot", topInterval)
+	}
+
 	snap := fetchTop()
 
 	if jsonOut {

@@ -142,20 +142,15 @@ func computeFingerprint(files []string, workspace string) (string, error) {
 	}
 
 	h := blake3.New()
-	found := 0
 	for _, name := range files {
 		data, err := readFingerprintFile(name, workspace)
 		if err != nil {
-			continue // missing files are not fatal — they just don't contribute
+			return "", err
 		}
 		h.Write([]byte(name))
 		h.Write([]byte{0})
 		h.Write(data)
 		h.Write([]byte{0})
-		found++
-	}
-	if found == 0 {
-		return "", nil
 	}
 	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }

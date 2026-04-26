@@ -18,6 +18,13 @@ func (s *Server) nodeStats() (int, int) {
 	return count, count
 }
 
+func (s *Server) clusterStatusLabel() string {
+	if s.coord.IsDraining() {
+		return "draining"
+	}
+	return "healthy"
+}
+
 func (s *Server) underReplicatedCount() int {
 	if s.underReplicated != nil {
 		return s.underReplicated()
@@ -42,14 +49,14 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	nodeCount, healthyCount := s.nodeStats()
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":                   "healthy",
+		"status":                   s.clusterStatusLabel(),
 		"nodes":                    nodeCount,
 		"nodes_healthy":            healthyCount,
 		"tasks_running":            running,
 		"tasks_queued":             queued,
 		"storage_used_bytes":       stats.UsedBytes,
-		"storage_capacity_bytes":   stats.Capacity,
-		"objects_total":            stats.Objects,
+		"storage_capacity":         stats.Capacity,
+		"storage_objects":          stats.Objects,
 		"objects_under_replicated": s.underReplicatedCount(),
 		"uptime_seconds":           int(time.Since(s.startTime).Seconds()),
 	})
@@ -70,21 +77,22 @@ func (s *Server) clusterStatus(w http.ResponseWriter, r *http.Request) {
 				wall = time.Since(t.Metrics.StartedAt).Truncate(time.Second).String()
 			}
 			active = append(active, map[string]any{
-				"id":       t.ID,
-				"status":   status,
-				"command":  t.Command,
-				"wall":     wall,
-				"priority": t.Config.Priority,
-				"worker":   t.Worker,
+				"id":         t.ID,
+				"status":     status,
+				"command":    t.Command,
+				"wall":       wall,
+				"priority":   t.Config.Priority,
+				"worker":     t.Worker,
+				"started_at": t.Metrics.StartedAt,
 			})
 		}
 	}
 
-	// Sort active tasks by start time (newest first).
+	// Sort active tasks by start time (longest-running first).
 	sort.Slice(active, func(i, j int) bool {
-		wi, _ := active[i]["wall"].(string)
-		wj, _ := active[j]["wall"].(string)
-		return wi > wj
+		si, _ := active[i]["started_at"].(time.Time)
+		sj, _ := active[j]["started_at"].(time.Time)
+		return si.Before(sj)
 	})
 
 	nodeCount, healthyCount := s.nodeStats()
@@ -100,7 +108,7 @@ func (s *Server) clusterStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":               "healthy",
+		"status":               s.clusterStatusLabel(),
 		"nodes":                nodeCount,
 		"nodes_healthy":        healthyCount,
 		"uptime_seconds":       int(time.Since(s.startTime).Seconds()),
