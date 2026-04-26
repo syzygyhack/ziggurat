@@ -228,7 +228,7 @@ Gossip discovery, replication, distributed scheduling, gRPC transport, failure d
 Streaming I/O, storage repair loop, dead letter queue, batch submission, Prometheus metrics, pipelines, cross-node dispatch with output replication.
 
 ### Phase 1: Production -- Partial
-Remaining: erasure coding, shard rebalancing, drain with migration, container execution (OCI), mTLS + join tokens, resource-aware scheduling, work stealing, mDNS auto-discovery, remote cancel propagation.
+Remaining: shard rebalancing, drain with migration, container execution (OCI), mTLS + join tokens, resource-aware scheduling, work stealing, mDNS auto-discovery, remote cancel propagation.
 
 ### Phase 2: Advanced -- Planned
 Coordinator failover (Raft), speculative execution, cross-cluster federation, Python client, encryption at rest, cgroup resource limits, live task streaming.

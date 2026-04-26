@@ -100,7 +100,7 @@ Objects are stored differently based on size:
 |------|------|----------|-----------|
 | **Small** | < 1 MB | Full replication (N copies) | Fast, simple, overhead is negligible |
 | **Medium** | 1 MB - 64 MB | Full replication (N copies) | Still manageable, fast reads |
-| **Large** | > 64 MB | Erasure coding (RS) *(Phase 1; replication until then)* | Space-efficient, acceptable read latency |
+| **Large** | > 64 MB | Erasure coding (RS) | Space-efficient, acceptable read latency |
 
 Tier thresholds and replication factor are configurable:
 
@@ -1250,17 +1250,18 @@ const (
 // ── Storage ───────────────────────────────────────
 
 type ObjectMeta struct {
-    Hash      [32]byte             // BLAKE3
-    Size      int64
-    Tier      Tier                 // small | medium | large
-    Strategy  StorageStrategy      // replicated | erasure_coded
-    Shards    []ShardPlacement
-    Erasure   *ErasureParams       // set when Strategy == ErasureCoded
-    Namespace string               // human-friendly key
-    Pinned    bool
-    RefCount  int32
-    Tags      map[string]string
-    CreatedAt time.Time
+    Hash           [32]byte             // BLAKE3
+    Size           int64
+    Tier           Tier                 // small | medium | large
+    Strategy       StorageStrategy      // replicated | erasure_coded
+    Shards         []ShardPlacement
+    Erasure        *ErasureParams       // set when Strategy == ErasureCoded
+    Namespace      string               // human-friendly key
+    Pinned         bool
+    RefCount       int32
+    Tags           map[string]string
+    CreatedAt      time.Time
+    UnreferencedAt time.Time            // when refcount last reached 0; starts GC grace period
 }
 
 type ErasureParams struct {
@@ -1269,6 +1270,7 @@ type ErasureParams struct {
     OriginalSize int64     // original object size before splitting
     ShardSize    int64     // per-shard size
     ShardHashes  []string  // hex-encoded BLAKE3 per shard (len = k+m)
+    ShardNodes   []string  // nodeID per shard index; set by origin during distribution
 }
 
 type ShardPlacement struct {
@@ -1553,11 +1555,11 @@ Multi-node mesh. Builds on 0a by adding discovery, gossip, replication, and dist
 - [x] Storage: metadata replication across nodes (shard placements tracked in ObjectMeta, NodesForHash for locality)
 - [x] Storage: degraded replication when nodes < replication_factor (under-replicated queue + Repair)
 - [x] Distributed scheduling: locality scoring + load balancing (scheduler.Score/Select with ObjectLocator + NodeLoad interfaces)
-- [x] Heartbeat failure detection + task re-queue (gossip NotifyLeave → Registry.OnLeave → Coordinator.RequeueByWorker)
+- [x] Heartbeat failure detection + task re-queue + storage repair (gossip NotifyLeave → Registry.OnLeave → RequeueByWorker + RemoveNodePlacements + TriggerRepair)
 
 ### Phase 1: Production
 
-- [ ] Erasure coding (Reed-Solomon) for large objects
+- [x] Erasure coding (Reed-Solomon) for large objects
 - [x] Storage repair (background re-replication + integrity scanning)
 - [ ] Shard rebalancing on node join/leave
 - [ ] Drain with shard migration
@@ -1591,7 +1593,7 @@ Multi-node mesh. Builds on 0a by adding discovery, gossip, replication, and dist
 
 3. **Coordinator placement**: Dev machine is coordinator by default (first node). Any node can be designated coordinator via `--role coordinator`. No automatic promotion until Phase 2 (Raft).
 
-4. **Storage consistency**: Strong consistency for replicated objects — `PUT` returns only after all replicas are written. For erasure-coded objects (Phase 1+), write to `k` data shards synchronously, queue `m` parity shards asynchronously. This guarantees durability (data shards alone can reconstruct) without blocking on parity.
+4. **Storage consistency**: Strong consistency for both replicated and erasure-coded objects — `PUT` returns only after all replicas/shards are distributed. For EC objects, all `k+m` shards are pushed to ring-determined nodes synchronously before the call returns.
 
 5. **Output format**: Deterministic tar archive. Stored as a single content-addressed object. Consumers extract what they need. Avoids metadata explosion and transactional multi-object uploads.
 

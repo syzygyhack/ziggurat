@@ -29,7 +29,7 @@ ziggurat
  |   status                 Cluster dashboard (the hero command)
  |   nodes                  List nodes with health, load, capabilities
  |   node <id>              Detail view for a single node
- |   top                    Live-updating cluster view            [PLANNED]
+ |   top                    Live-updating cluster view (--once for snapshot)
  |
  |-- Task Submission
  |   run <cmd...>           Submit a task
@@ -50,6 +50,10 @@ ziggurat
  |   pipeline cancel <id>   Cancel all stages
  |   pipeline retry <id>    Retry from first failed stage
  |
+ |-- Environments
+ |   env list               List persistent environments on this node
+ |   env prune              Remove stale environments
+ |
  |-- Storage
  |   put <key> <file>       Upload object
  |   get <key> [dest]       Download object
@@ -59,10 +63,14 @@ ziggurat
  |   unpin <key>            Allow GC                             [PLANNED]
  |   store status           Storage utilization across cluster   [PLANNED]
  |
+ |-- Interactive
+ |   shell                  Interactive REPL for cluster operations
+ |   mount <path>           Mount store as FUSE filesystem (Linux)
+ |
  |-- Diagnostics
  |   health                 Cluster health check (API only: /api/v1/health)
  |   version                Binary version + build info
- |   bench                  Storage + compute benchmark          [PLANNED]
+ |   benchmark              CPU, memory, disk, GPU, and peer latency benchmarks
 ```
 
 ---
@@ -150,7 +158,7 @@ $ ziggurat status --json
   "tasks_running": 7,
   "tasks_queued": 3,
   "storage_used_bytes": 45208989696,
-  "storage_capacity_bytes": 214748364800
+  "storage_capacity": 214748364800
 }
 ```
 
@@ -525,13 +533,16 @@ This is out of scope for Ziggurat itself but documents the integration seam.
 | `wait` | full | full | full |
 | `retry` | -- | full | full |
 | `logs` | -- | -- | SSE streaming |
+| `env *` | -- | full | full |
 | `put/get/ls/rm` | full | + replication | + erasure coding |
 | `pin/unpin` | full | full | full |
 | `store status` | local stats | cluster-wide | + repair queue |
-| `pipeline *` | -- | -- | full |
-| `batch` | -- | -- | full |
-| `top` | -- | -- | live TUI |
-| `bench` | full | full | full |
+| `pipeline *` | -- | full | full |
+| `batch` | -- | full | full |
+| `top` | -- | full | + color/sparklines |
+| `benchmark` | full | full | full |
+| `shell` | -- | full | full |
+| `mount` | -- | full | full |
 | `health` | full | full | full |
 | `version` | full | full | full |
 
@@ -545,4 +556,4 @@ Phase 1.5 (complete): LAN productivity. Streaming I/O, storage repair loop, dead
 queue, batch submission, Prometheus metrics, pipelines, cross-node dispatch.
 
 Phase 1 (partial): full production UX. Remaining: streaming logs, work stealing,
-mDNS auto-discovery, erasure coding, container execution, mTLS.
+mDNS auto-discovery, container execution, mTLS.
