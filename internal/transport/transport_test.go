@@ -3,6 +3,8 @@ package transport
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net"
@@ -17,6 +19,7 @@ import (
 	"github.com/syzygyhack/ziggurat/internal/store"
 	"github.com/syzygyhack/ziggurat/internal/transport/pb"
 	"github.com/syzygyhack/ziggurat/internal/worker"
+	"github.com/zeebo/blake3"
 	"go.etcd.io/bbolt"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -225,6 +228,266 @@ func TestTransport_PushShard(t *testing.T) {
 	stats := dstStore.Stats()
 	if stats.Objects != 1 {
 		t.Fatalf("expected 1 object in destination metadata, got %d", stats.Objects)
+	}
+}
+
+func TestTransport_PushECShard_CreatesMetadata(t *testing.T) {
+	// Set up a destination store with EC enabled so it can reconstruct.
+	dstDir := t.TempDir()
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	storeCfg := store.DefaultTestConfig()
+	storeCfg.Erasure.Enabled = true
+	storeCfg.Erasure.DataShards = 4
+	storeCfg.Erasure.ParityShards = 2
+
+	dstStore, err := store.New(storeCfg, dstDir, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dstStore.Close()
+
+	tasksDB, err := bbolt.Open(filepath.Join(dstDir, "tasks.db"), 0o644, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tasksDB.Close()
+
+	persist, err := coord.NewPersist(tasksDB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := coord.New(dstStore, persist, coord.TaskDefaults{}, log)
+	w := worker.New("dst-worker", nil, nil, dstStore, c, config.ComputeConfig{
+		TaskTimeout: 5 * time.Minute,
+	}, t.TempDir(), log)
+
+	srv := grpc.NewServer()
+	tSrv := NewServer(c, dstStore, w, log)
+	pb.RegisterZigguratNodeServer(srv, tSrv)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go srv.Serve(ln)
+	defer srv.GracefulStop()
+
+	// Encode test data into EC shards on a source store.
+	srcDir := t.TempDir()
+	srcStore, err := store.New(storeCfg, srcDir, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srcStore.Close()
+
+	data := bytes.Repeat([]byte("x"), 1024)
+	hash, err := srcStore.Put(context.Background(), "src/obj", bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	codec := srcStore.ErasureCodec()
+	if codec == nil {
+		t.Skip("erasure codec not enabled on source store")
+	}
+
+	shards, err := codec.Encode(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Compute BLAKE3 hashes for each shard so the receiver can verify integrity.
+	shardHashes := make([]string, len(shards))
+	for i, s := range shards {
+		h := blake3.New()
+		h.Write(s)
+		var digest [32]byte
+		h.Sum(digest[:0])
+		shardHashes[i] = hex.EncodeToString(digest[:])
+	}
+
+	shardSize := int64(len(shards[0]))
+	ecParams := model.ErasureParams{
+		DataShards:   4,
+		ParityShards: 2,
+		OriginalSize: 1024,
+		ShardSize:    shardSize,
+		ShardHashes:  shardHashes,
+	}
+	ecMeta, err := json.Marshal(&ecParams)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Push enough shards (4 data shards) to the destination so it can reconstruct.
+	client := NewClient()
+	defer client.Close()
+
+	for i := 0; i < 4; i++ {
+		err = client.PushECShard(context.Background(), ln.Addr().String(), hash, i, shards[i], ecMeta)
+		if err != nil {
+			t.Fatalf("push shard %d: %v", i, err)
+		}
+	}
+
+	// Verify receiver-side ObjectMeta was created with ErasureParams.
+	stats := dstStore.Stats()
+	if stats.Objects != 1 {
+		t.Fatalf("expected 1 object in destination metadata, got %d", stats.Objects)
+	}
+
+	// UsedBytes should reflect shard size, not original object size.
+	if stats.UsedBytes != shardSize {
+		t.Fatalf("expected UsedBytes=%d (shard size), got %d", shardSize, stats.UsedBytes)
+	}
+
+	// Verify the shards are on disk.
+	indices, err := store.ListLocalShardIndices(dstStore.Dir(), hash)
+	if err != nil {
+		t.Fatalf("list shards on destination: %v", err)
+	}
+	if len(indices) != 4 {
+		t.Fatalf("expected 4 shards on destination, got %d", len(indices))
+	}
+}
+
+func TestTransport_PushECShard_RejectsOutOfRangeIndex(t *testing.T) {
+	env := setupTestEnv(t)
+	client := NewClient()
+	defer client.Close()
+
+	ecMeta, _ := json.Marshal(model.ErasureParams{
+		DataShards:   4,
+		ParityShards: 2,
+		OriginalSize: 1024,
+		ShardSize:    256,
+	})
+
+	// Index 6 is out of range for RS(4,2) = 6 total shards [0..5].
+	err := client.PushECShard(context.Background(), env.addr, "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234", 6, []byte("data"), ecMeta)
+	if err == nil {
+		t.Fatal("expected error for out-of-range shard_index")
+	}
+
+	// Negative index.
+	err = client.PushECShard(context.Background(), env.addr, "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234", -1, []byte("data"), ecMeta)
+	if err == nil {
+		t.Fatal("expected error for negative shard_index")
+	}
+}
+
+func TestTransport_PushECShard_RejectsMissingErasureMeta(t *testing.T) {
+	env := setupTestEnv(t)
+	client := NewClient()
+	defer client.Close()
+
+	// Push with nil ecMeta.
+	err := client.PushECShard(context.Background(), env.addr, "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234", 0, []byte("data"), nil)
+	if err == nil {
+		t.Fatal("expected error for missing erasure_meta")
+	}
+}
+
+func TestTransport_PushECShard_RejectsHashMismatch(t *testing.T) {
+	env := setupTestEnv(t)
+	client := NewClient()
+	defer client.Close()
+
+	ecMeta, _ := json.Marshal(model.ErasureParams{
+		DataShards:   4,
+		ParityShards: 2,
+		OriginalSize: 1024,
+		ShardSize:    256,
+		ShardHashes:  []string{"0000000000000000000000000000000000000000000000000000000000000000", "", "", "", "", ""},
+	})
+
+	// Shard 0 data won't match the all-zeros expected hash.
+	err := client.PushECShard(context.Background(), env.addr, "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234", 0, []byte("this data does not match"), ecMeta)
+	if err == nil {
+		t.Fatal("expected error for shard hash mismatch")
+	}
+}
+
+func TestTransport_PushShard_RejectsShortHash(t *testing.T) {
+	env := setupTestEnv(t)
+	client := NewClient()
+	defer client.Close()
+
+	// EC path: short hash should be rejected before reaching WriteSingleShard.
+	ecMeta, _ := json.Marshal(model.ErasureParams{
+		DataShards:   4,
+		ParityShards: 2,
+		OriginalSize: 1024,
+		ShardSize:    256,
+	})
+	err := client.PushECShard(context.Background(), env.addr, "tooshort", 0, []byte("data"), ecMeta)
+	if err == nil {
+		t.Fatal("expected error for short hash on EC push")
+	}
+
+	// Blob path: short hash should be rejected before reaching WriteBlob.
+	err = client.PushShard(context.Background(), env.addr, "ab", 4, bytes.NewReader([]byte("data")))
+	if err == nil {
+		t.Fatal("expected error for short hash on blob push")
+	}
+}
+
+func TestTransport_PushECShard_RejectsZeroShardCounts(t *testing.T) {
+	env := setupTestEnv(t)
+	client := NewClient()
+	defer client.Close()
+
+	ecMeta, _ := json.Marshal(model.ErasureParams{
+		DataShards:   0,
+		ParityShards: 0,
+		OriginalSize: 1024,
+		ShardSize:    256,
+	})
+	err := client.PushECShard(context.Background(), env.addr, "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234", 0, []byte("data"), ecMeta)
+	if err == nil {
+		t.Fatal("expected error for zero shard counts")
+	}
+}
+
+func TestTransport_PushECShard_RejectsOversizedData(t *testing.T) {
+	env := setupTestEnv(t)
+	client := NewClient()
+	defer client.Close()
+
+	ecMeta, _ := json.Marshal(model.ErasureParams{
+		DataShards:   4,
+		ParityShards: 2,
+		OriginalSize: 1024,
+		ShardSize:    256, // limit will be 512 (2x claimed)
+	})
+
+	// Send 1024 bytes, which exceeds 2x the claimed 256-byte ShardSize.
+	bigData := bytes.Repeat([]byte("x"), 1024)
+	err := client.PushECShard(context.Background(), env.addr, "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234", 0, bigData, ecMeta)
+	if err == nil {
+		t.Fatal("expected error for oversized shard data")
+	}
+}
+
+func TestTransport_PushFullBlob_CleansUpOnHashMismatch(t *testing.T) {
+	env := setupTestEnv(t)
+	client := NewClient()
+	defer client.Close()
+
+	data := []byte("hello blob orphan test")
+	// Push with a fake hash that won't match the actual BLAKE3.
+	fakeHash := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	err := client.PushShard(context.Background(), env.addr, fakeHash, int64(len(data)), bytes.NewReader(data))
+	if err == nil {
+		t.Fatal("expected error for hash mismatch")
+	}
+
+	// The blob was written under its real content hash, then deleted on mismatch.
+	// Verify the destination store has no objects (no orphan).
+	stats := env.store.Stats()
+	if stats.Objects != 0 {
+		t.Fatalf("expected 0 objects after mismatch cleanup, got %d", stats.Objects)
 	}
 }
 

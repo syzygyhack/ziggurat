@@ -19,10 +19,12 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ZigguratNode_DispatchTask_FullMethodName = "/ziggurat.ZigguratNode/DispatchTask"
-	ZigguratNode_TaskResult_FullMethodName   = "/ziggurat.ZigguratNode/TaskResult"
-	ZigguratNode_PullShard_FullMethodName    = "/ziggurat.ZigguratNode/PullShard"
-	ZigguratNode_PushShard_FullMethodName    = "/ziggurat.ZigguratNode/PushShard"
+	ZigguratNode_DispatchTask_FullMethodName  = "/ziggurat.ZigguratNode/DispatchTask"
+	ZigguratNode_TaskResult_FullMethodName    = "/ziggurat.ZigguratNode/TaskResult"
+	ZigguratNode_PullShard_FullMethodName     = "/ziggurat.ZigguratNode/PullShard"
+	ZigguratNode_PushShard_FullMethodName     = "/ziggurat.ZigguratNode/PushShard"
+	ZigguratNode_PullECShard_FullMethodName   = "/ziggurat.ZigguratNode/PullECShard"
+	ZigguratNode_RetireReplica_FullMethodName = "/ziggurat.ZigguratNode/RetireReplica"
 )
 
 // ZigguratNodeClient is the client API for ZigguratNode service.
@@ -46,6 +48,14 @@ type ZigguratNodeClient interface {
 	// replication system to write replicas. The first message in the stream
 	// MUST carry the header (hash + size); subsequent messages carry data chunks.
 	PushShard(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[PushShardMsg, PushShardResponse], error)
+	// PullECShard downloads a single erasure-coded shard from this node.
+	// Used by cross-node EC reconstruction when the local node lacks enough
+	// shards to decode the original object.
+	PullECShard(ctx context.Context, in *PullECShardRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ShardData], error)
+	// RetireReplica tells this node to release its hold on a replica.
+	// Unpins and decrements the refcount, allowing GC to reclaim it after
+	// the grace period. Used when the origin node's GC collects an object.
+	RetireReplica(ctx context.Context, in *RetireReplicaRequest, opts ...grpc.CallOption) (*RetireReplicaResponse, error)
 }
 
 type zigguratNodeClient struct {
@@ -108,6 +118,35 @@ func (c *zigguratNodeClient) PushShard(ctx context.Context, opts ...grpc.CallOpt
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ZigguratNode_PushShardClient = grpc.ClientStreamingClient[PushShardMsg, PushShardResponse]
 
+func (c *zigguratNodeClient) PullECShard(ctx context.Context, in *PullECShardRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ShardData], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &ZigguratNode_ServiceDesc.Streams[2], ZigguratNode_PullECShard_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[PullECShardRequest, ShardData]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ZigguratNode_PullECShardClient = grpc.ServerStreamingClient[ShardData]
+
+func (c *zigguratNodeClient) RetireReplica(ctx context.Context, in *RetireReplicaRequest, opts ...grpc.CallOption) (*RetireReplicaResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RetireReplicaResponse)
+	err := c.cc.Invoke(ctx, ZigguratNode_RetireReplica_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ZigguratNodeServer is the server API for ZigguratNode service.
 // All implementations must embed UnimplementedZigguratNodeServer
 // for forward compatibility.
@@ -129,6 +168,14 @@ type ZigguratNodeServer interface {
 	// replication system to write replicas. The first message in the stream
 	// MUST carry the header (hash + size); subsequent messages carry data chunks.
 	PushShard(grpc.ClientStreamingServer[PushShardMsg, PushShardResponse]) error
+	// PullECShard downloads a single erasure-coded shard from this node.
+	// Used by cross-node EC reconstruction when the local node lacks enough
+	// shards to decode the original object.
+	PullECShard(*PullECShardRequest, grpc.ServerStreamingServer[ShardData]) error
+	// RetireReplica tells this node to release its hold on a replica.
+	// Unpins and decrements the refcount, allowing GC to reclaim it after
+	// the grace period. Used when the origin node's GC collects an object.
+	RetireReplica(context.Context, *RetireReplicaRequest) (*RetireReplicaResponse, error)
 	mustEmbedUnimplementedZigguratNodeServer()
 }
 
@@ -150,6 +197,12 @@ func (UnimplementedZigguratNodeServer) PullShard(*PullShardRequest, grpc.ServerS
 }
 func (UnimplementedZigguratNodeServer) PushShard(grpc.ClientStreamingServer[PushShardMsg, PushShardResponse]) error {
 	return status.Error(codes.Unimplemented, "method PushShard not implemented")
+}
+func (UnimplementedZigguratNodeServer) PullECShard(*PullECShardRequest, grpc.ServerStreamingServer[ShardData]) error {
+	return status.Error(codes.Unimplemented, "method PullECShard not implemented")
+}
+func (UnimplementedZigguratNodeServer) RetireReplica(context.Context, *RetireReplicaRequest) (*RetireReplicaResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RetireReplica not implemented")
 }
 func (UnimplementedZigguratNodeServer) mustEmbedUnimplementedZigguratNodeServer() {}
 func (UnimplementedZigguratNodeServer) testEmbeddedByValue()                      {}
@@ -226,6 +279,35 @@ func _ZigguratNode_PushShard_Handler(srv interface{}, stream grpc.ServerStream) 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ZigguratNode_PushShardServer = grpc.ClientStreamingServer[PushShardMsg, PushShardResponse]
 
+func _ZigguratNode_PullECShard_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(PullECShardRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(ZigguratNodeServer).PullECShard(m, &grpc.GenericServerStream[PullECShardRequest, ShardData]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ZigguratNode_PullECShardServer = grpc.ServerStreamingServer[ShardData]
+
+func _ZigguratNode_RetireReplica_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RetireReplicaRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ZigguratNodeServer).RetireReplica(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ZigguratNode_RetireReplica_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ZigguratNodeServer).RetireReplica(ctx, req.(*RetireReplicaRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ZigguratNode_ServiceDesc is the grpc.ServiceDesc for ZigguratNode service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -241,6 +323,10 @@ var ZigguratNode_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "TaskResult",
 			Handler:    _ZigguratNode_TaskResult_Handler,
 		},
+		{
+			MethodName: "RetireReplica",
+			Handler:    _ZigguratNode_RetireReplica_Handler,
+		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
@@ -252,6 +338,11 @@ var ZigguratNode_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "PushShard",
 			Handler:       _ZigguratNode_PushShard_Handler,
 			ClientStreams: true,
+		},
+		{
+			StreamName:    "PullECShard",
+			Handler:       _ZigguratNode_PullECShard_Handler,
+			ServerStreams: true,
 		},
 	},
 	Metadata: "ziggurat.proto",

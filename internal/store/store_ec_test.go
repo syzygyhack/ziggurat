@@ -141,6 +141,44 @@ func TestStore_SmallObjectSkipsEC(t *testing.T) {
 	}
 }
 
+func TestStore_ECReconstructRejectsCorruptedData(t *testing.T) {
+	s := testStoreWithEC(t)
+	ctx := context.Background()
+
+	data := make([]byte, 8*1024)
+	if _, err := rand.Read(data); err != nil {
+		t.Fatal(err)
+	}
+
+	hash, err := s.Put(ctx, "test/ec-corrupt", bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Delete the full blob to force EC reconstruction.
+	if err := os.Remove(blobPath(s.dir, hash)); err != nil {
+		t.Fatal(err)
+	}
+
+	// Corrupt the stored OriginalSize in metadata so reconstruction
+	// produces truncated data that won't match the content hash.
+	meta, err := s.getMeta(hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta.Erasure.OriginalSize = 100 // much smaller than real data
+	s.setErasureParams(hash, meta.Erasure)
+
+	// Reconstruction should fail the BLAKE3 integrity check.
+	_, err = s.GetByHash(ctx, hash)
+	if err == nil {
+		t.Fatal("expected error from corrupted EC reconstruction")
+	}
+	if !bytes.Contains([]byte(err.Error()), []byte("integrity check failed")) {
+		t.Fatalf("expected integrity check error, got: %v", err)
+	}
+}
+
 func TestStore_ECCodecAccessor(t *testing.T) {
 	s := testStoreWithEC(t)
 	if s.ErasureCodec() == nil {

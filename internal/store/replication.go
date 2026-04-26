@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"sync"
 	"time"
 
@@ -16,6 +17,12 @@ import (
 // ShardPusher sends an object's data to a remote node.
 type ShardPusher interface {
 	PushShard(ctx context.Context, addr string, hash string, size int64, r io.Reader) error
+}
+
+// ECShardPusher pushes an individual erasure-coded shard to a remote node.
+// ecMeta is JSON-serialized ErasureParams so the receiver can create metadata.
+type ECShardPusher interface {
+	PushECShard(ctx context.Context, addr string, hash string, shardIndex int, data []byte, ecMeta []byte) error
 }
 
 // Peer describes a remote node for replication.
@@ -29,13 +36,22 @@ type PeerProvider interface {
 	Peers(exclude string) []Peer
 }
 
+// RingProvider resolves an object key to ordered node IDs via consistent hashing.
+type RingProvider interface {
+	GetNodes(key string, n int) []string
+}
+
 // Replicator handles background replication of objects to peer nodes.
+// For replicated objects it pushes full blobs. For erasure-coded objects
+// it distributes individual shards to ring-determined nodes.
 type Replicator struct {
 	store   *Store
 	localID string
 	factor  int // desired replication factor
 	pusher  ShardPusher
+	ecPush  ECShardPusher // optional; nil disables EC-aware distribution
 	peers   PeerProvider
+	ring    RingProvider // optional; used for EC shard placement
 	log     *slog.Logger
 
 	mu          sync.Mutex
@@ -59,12 +75,23 @@ func NewReplicator(s *Store, localID string, factor int, pusher ShardPusher, pee
 	}
 }
 
+// SetECPusher configures the pusher used to distribute individual EC shards.
+func (r *Replicator) SetECPusher(p ECShardPusher) {
+	r.ecPush = p
+}
+
+// SetRing configures the consistent hash ring used for EC shard placement.
+func (r *Replicator) SetRing(ring RingProvider) {
+	r.ring = ring
+}
+
 // AfterPut is called after a successful local Put. It records the local
 // shard placement and replicates to peers up to replication_factor.
-// Runs in the caller's goroutine; use a background worker for async replication.
+// For erasure-coded objects with a ring and EC pusher configured, individual
+// shards are distributed to ring-determined nodes instead of full blobs.
 func (r *Replicator) AfterPut(ctx context.Context, hashHex string) error {
-	// Record local placement.
-	if err := r.addPlacement(hashHex, r.localID); err != nil {
+	// Record local placement (index 0 = full blob).
+	if err := r.addPlacement(hashHex, r.localID, 0); err != nil {
 		return fmt.Errorf("record local placement: %w", err)
 	}
 
@@ -73,6 +100,19 @@ func (r *Replicator) AfterPut(ctx context.Context, hashHex string) error {
 		return fmt.Errorf("get meta: %w", err)
 	}
 
+	// For EC objects with ring + EC pusher and enough distinct nodes,
+	// distribute individual shards. Otherwise fall through to full-blob replication.
+	if meta.Erasure != nil && r.ecPush != nil && r.ring != nil {
+		totalShards := meta.Erasure.DataShards + meta.Erasure.ParityShards
+		ringNodes := r.ring.GetNodes(hashHex, totalShards)
+		if len(ringNodes) >= totalShards {
+			return r.distributeECShards(ctx, hashHex, meta, ringNodes)
+		}
+		r.log.Info("insufficient nodes for EC distribution, falling back to replication",
+			"hash", hashHex[:12], "have_nodes", len(ringNodes), "need", totalShards)
+	}
+
+	// Standard full-blob replication path.
 	needed := r.factor - len(meta.Shards)
 	if needed <= 0 {
 		return nil // already at desired replication level
@@ -107,8 +147,8 @@ func (r *Replicator) AfterPut(ctx context.Context, hashHex string) error {
 			continue
 		}
 
-		// Record remote shard placement.
-		if err := r.addPlacement(hashHex, peer.NodeID); err != nil {
+		// Record remote shard placement (index 0 = full blob).
+		if err := r.addPlacement(hashHex, peer.NodeID, 0); err != nil {
 			r.log.Warn("failed to record remote placement", "hash", hashHex[:12], "peer", peer.NodeID, "err", err)
 		}
 
@@ -124,10 +164,148 @@ func (r *Replicator) AfterPut(ctx context.Context, hashHex string) error {
 	return nil
 }
 
+// distributeECShards reads local EC shards and pushes each to a different
+// node determined by the consistent hash ring. The caller must ensure
+// len(ringNodes) >= totalShards.
+//
+// EC shard placements ARE recorded in the origin's meta.Shards so that GC
+// can notify shard holders to retire, and so cross-node reconstruction can
+// locate shards by querying the origin's metadata.
+func (r *Replicator) distributeECShards(ctx context.Context, hashHex string, meta *model.ObjectMeta, ringNodes []string) error {
+	ec := meta.Erasure
+	totalShards := ec.DataShards + ec.ParityShards
+
+	// Build ErasureParams for the wire that includes the ring assignment
+	// so receiver nodes can discover shard holders without the origin's
+	// meta.Shards (which only the origin records).
+	ecForWire := *ec
+	ecForWire.ShardNodes = make([]string, totalShards)
+	for i := 0; i < totalShards; i++ {
+		if i < len(ringNodes) {
+			ecForWire.ShardNodes[i] = ringNodes[i]
+		}
+	}
+	ecMeta, err := json.Marshal(&ecForWire)
+	if err != nil {
+		return fmt.Errorf("serialize erasure params: %w", err)
+	}
+
+	// Build a map of nodeID -> gRPC address from the peer provider.
+	peers := r.peers.Peers("") // get all peers, including self
+	addrMap := make(map[string]string, len(peers))
+	for _, p := range peers {
+		addrMap[p.NodeID] = p.Addr
+	}
+
+	// Read locally available shard indices.
+	localIndices, err := ListLocalShardIndices(r.store.dir, hashHex)
+	if err != nil {
+		return fmt.Errorf("list local shards: %w", err)
+	}
+
+	pushed := 0
+	for _, idx := range localIndices {
+		if ctx.Err() != nil {
+			break
+		}
+		if idx >= totalShards {
+			continue
+		}
+
+		targetNodeID := ringNodes[idx]
+
+		// If this shard stays local, record placement and move on.
+		if targetNodeID == r.localID {
+			if err := r.addPlacement(hashHex, r.localID, idx); err != nil {
+				r.log.Warn("record local EC shard placement", "hash", hashHex[:12], "index", idx, "err", err)
+			}
+			continue
+		}
+
+		addr, ok := addrMap[targetNodeID]
+		if !ok || addr == "" {
+			r.log.Debug("no address for ring target", "node", targetNodeID, "shard", idx)
+			continue
+		}
+
+		// Read the shard from disk.
+		path := shardPath(r.store.dir, hashHex, idx)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			r.log.Warn("read local shard for distribution", "hash", hashHex[:12], "index", idx, "err", err)
+			continue
+		}
+
+		if err := r.ecPush.PushECShard(ctx, addr, hashHex, idx, data, ecMeta); err != nil {
+			r.log.Warn("ec shard push failed", "hash", hashHex[:12], "index", idx, "peer", addr, "err", err)
+			continue
+		}
+
+		// Record remote shard placement so GC can retire and reconstruction
+		// can locate this shard.
+		if err := r.addPlacement(hashHex, targetNodeID, idx); err != nil {
+			r.log.Warn("record remote EC shard placement", "hash", hashHex[:12], "index", idx, "peer", targetNodeID, "err", err)
+		}
+
+		pushed++
+		r.log.Info("distributed ec shard", "hash", hashHex[:12], "index", idx, "peer", addr)
+	}
+
+	// Count shards that stay local (assigned to us by the ring).
+	localCount := 0
+	for i := 0; i < totalShards; i++ {
+		if i < len(ringNodes) && ringNodes[i] == r.localID {
+			localCount++
+		}
+	}
+	totalDistributed := pushed + localCount
+
+	if totalDistributed < totalShards {
+		r.markUnderReplicated(hashHex)
+	} else {
+		// All shards placed — clear any prior under-replication mark.
+		r.clearUnderReplicated(hashHex)
+	}
+	return nil
+}
+
 // addPlacement records a shard placement for a node in object metadata.
-func (r *Replicator) addPlacement(hashHex string, nodeID string) error {
+// index is the shard index: 0 for full-blob replication, or the EC shard
+// index for erasure-coded objects. Uses a read-only check first to skip
+// the write transaction when the placement already exists.
+func (r *Replicator) addPlacement(hashHex string, nodeID string, index int) error {
+	// Fast path: check if placement already exists without a write lock.
+	var exists bool
+	r.store.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketObjects)
+		if b == nil {
+			return nil
+		}
+		data := b.Get([]byte(hashHex))
+		if data == nil {
+			return nil
+		}
+		var meta model.ObjectMeta
+		if err := json.Unmarshal(data, &meta); err != nil {
+			return nil
+		}
+		for _, s := range meta.Shards {
+			if s.NodeID == nodeID && s.Index == index {
+				exists = true
+				break
+			}
+		}
+		return nil
+	})
+	if exists {
+		return nil
+	}
+
 	return r.store.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketObjects)
+		if b == nil {
+			return fmt.Errorf("objects bucket not initialized")
+		}
 		data := b.Get([]byte(hashHex))
 		if data == nil {
 			return fmt.Errorf("object not found: %s", hashHex[:12])
@@ -138,15 +316,15 @@ func (r *Replicator) addPlacement(hashHex string, nodeID string) error {
 			return err
 		}
 
-		// Don't add duplicate placements.
+		// Re-check inside write tx (another goroutine may have added it).
 		for _, s := range meta.Shards {
-			if s.NodeID == nodeID {
+			if s.NodeID == nodeID && s.Index == index {
 				return nil
 			}
 		}
 
 		meta.Shards = append(meta.Shards, model.ShardPlacement{
-			Index:    0, // single-shard replication; index always 0
+			Index:    index,
 			NodeID:   nodeID,
 			Verified: time.Now(),
 		})
@@ -163,6 +341,13 @@ func (r *Replicator) addPlacement(hashHex string, nodeID string) error {
 func (r *Replicator) markUnderReplicated(hashHex string) {
 	r.mu.Lock()
 	r.underRepMap[hashHex] = struct{}{}
+	r.mu.Unlock()
+}
+
+// clearUnderReplicated removes a hash from the under-replicated set.
+func (r *Replicator) clearUnderReplicated(hashHex string) {
+	r.mu.Lock()
+	delete(r.underRepMap, hashHex)
 	r.mu.Unlock()
 }
 
@@ -193,7 +378,17 @@ func (r *Replicator) Repair(ctx context.Context) int {
 			continue
 		}
 
-		// Check if now fully replicated.
+		// EC objects: distributeECShards calls clearUnderReplicated on
+		// success, so check if it was already removed.
+		r.mu.Lock()
+		_, stillUnder := r.underRepMap[h]
+		r.mu.Unlock()
+		if !stillUnder {
+			repaired++
+			continue
+		}
+
+		// Replicated objects: check shard placement count.
 		meta, err := r.store.getMeta(h)
 		if err != nil {
 			continue
@@ -241,6 +436,99 @@ func (r *Replicator) TriggerRepair(ctx context.Context) {
 // Call this during shutdown to prevent races with store/DB close.
 func (r *Replicator) WaitForRepairs() {
 	r.repairWg.Wait()
+}
+
+// RemoveNodePlacements removes all shard placements referencing departedID
+// from every object's metadata. Objects that drop below the replication factor
+// are marked under-replicated so the next repair pass re-distributes them.
+func (r *Replicator) RemoveNodePlacements(departedID string) {
+	// Collect keys that need updating first — bbolt forbids mutation
+	// inside ForEach (undefined behavior on page splits).
+	var toUpdate []string
+	r.store.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketObjects)
+		if b == nil {
+			return nil
+		}
+		return b.ForEach(func(k, v []byte) error {
+			var meta model.ObjectMeta
+			if err := json.Unmarshal(v, &meta); err != nil {
+				return nil
+			}
+			for _, sp := range meta.Shards {
+				if sp.NodeID == departedID {
+					toUpdate = append(toUpdate, string(k))
+					break
+				}
+			}
+			return nil
+		})
+	})
+
+	var affected int
+	r.store.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketObjects)
+		if b == nil {
+			return nil
+		}
+		for _, hashHex := range toUpdate {
+			data := b.Get([]byte(hashHex))
+			if data == nil {
+				continue
+			}
+			var meta model.ObjectMeta
+			if err := json.Unmarshal(data, &meta); err != nil {
+				continue
+			}
+			filtered := meta.Shards[:0]
+			for _, sp := range meta.Shards {
+				if sp.NodeID != departedID {
+					filtered = append(filtered, sp)
+				}
+			}
+			if len(filtered) == len(meta.Shards) {
+				continue
+			}
+			meta.Shards = filtered
+			updated, err := json.Marshal(&meta)
+			if err != nil {
+				continue
+			}
+			if err := b.Put([]byte(hashHex), updated); err != nil {
+				continue
+			}
+			affected++
+		}
+		return nil
+	})
+
+	if affected > 0 {
+		r.log.Info("removed departed node placements", "node", departedID, "objects_affected", affected)
+	}
+
+	// Re-scan to mark objects that are now under-replicated.
+	r.store.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketObjects)
+		if b == nil {
+			return nil
+		}
+		return b.ForEach(func(k, v []byte) error {
+			var meta model.ObjectMeta
+			if err := json.Unmarshal(v, &meta); err != nil {
+				return nil
+			}
+			hashHex := string(k)
+			if meta.Erasure != nil {
+				totalShards := meta.Erasure.DataShards + meta.Erasure.ParityShards
+				if len(meta.Shards) < totalShards {
+					r.markUnderReplicated(hashHex)
+				}
+			} else if len(meta.Shards) < r.factor {
+				r.markUnderReplicated(hashHex)
+			}
+			return nil
+		})
+	})
 }
 
 // NodesForHash returns the node IDs that hold a given object. Implements

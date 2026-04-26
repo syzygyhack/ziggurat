@@ -89,6 +89,12 @@ func shardPath(storeDir, hashHex string, index int) string {
 	return filepath.Join(shardDir(storeDir, hashHex), fmt.Sprintf("%d.shard", index))
 }
 
+// ShardPath is the exported version of shardPath, used by the gRPC server
+// to serve individual EC shard files to remote nodes.
+func ShardPath(storeDir, hashHex string, index int) string {
+	return shardPath(storeDir, hashHex, index)
+}
+
 // WriteShards writes all shards to disk under the erasure-coded directory layout.
 // Returns per-shard BLAKE3 hashes for integrity tracking.
 func WriteShards(storeDir, hashHex string, shards [][]byte) ([][32]byte, error) {
@@ -173,6 +179,11 @@ func ListLocalShardIndices(storeDir, hashHex string) ([]int, error) {
 	}
 	sort.Ints(indices)
 	return indices, nil
+}
+
+// DeleteSingleShard removes a single shard file from disk.
+func DeleteSingleShard(storeDir, hashHex string, index int) error {
+	return os.Remove(shardPath(storeDir, hashHex, index))
 }
 
 // WriteSingleShard writes a single shard to disk (used when receiving a shard

@@ -86,6 +86,7 @@ func (c *Coordinator) Recover() error {
 		case model.TaskQueued, model.TaskScheduled, model.TaskRunning, model.TaskCancelling:
 			// Reset to queued so the worker picks them up again.
 			t.Status = model.TaskQueued
+			clearExecState(t)
 			c.queue.Push(t)
 		}
 	}
@@ -382,6 +383,7 @@ func (c *Coordinator) Complete(id string, exitCode int, stdout, stderr, errMsg, 
 		t.Attempt++
 		if t.Attempt <= t.Config.MaxRetries {
 			t.Status = model.TaskQueued
+			clearExecState(t)
 			c.queue.Push(t)
 		} else {
 			if c.defaults.DeadLetter {
@@ -571,7 +573,7 @@ func (c *Coordinator) RequeueByWorker(workerID string) int {
 		}
 		c.log.Info("requeuing task from departed node", "task", t.ID, "worker", workerID)
 		t.Status = model.TaskQueued
-		t.Worker = ""
+		clearExecState(t)
 		c.queue.Push(t)
 		metrics.TaskQueueDepth.Set(float64(c.queue.Len()))
 		if err := c.persist.Save(t); err != nil {
@@ -675,4 +677,20 @@ func (c *Coordinator) resolveID(id string) (string, error) {
 
 func isTerminal(s model.TaskStatus) bool {
 	return s == model.TaskCompleted || s == model.TaskFailed || s == model.TaskCancelled || s == model.TaskDeadLetter
+}
+
+// clearExecState resets execution-related fields before re-enqueuing a task.
+// This prevents stale worker, timing, output, and error data from a previous
+// attempt from leaking into the next execution.
+func clearExecState(t *model.Task) {
+	t.Worker = ""
+	t.ExitCode = 0
+	t.Stdout = ""
+	t.Stderr = ""
+	t.Error = ""
+	t.OutputRef = ""
+	t.Metrics.StartedAt = time.Time{}
+	t.Metrics.CompletedAt = time.Time{}
+	t.Metrics.WallTime = 0
+	t.Metrics.OutputBytes = 0
 }

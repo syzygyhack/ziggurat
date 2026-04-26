@@ -10,13 +10,32 @@ import (
 	"github.com/zeebo/blake3"
 )
 
+// ValidateHashHex checks that a hash string is exactly 64 lowercase hex
+// characters (a valid hex-encoded BLAKE3 digest). This must be called on
+// any hash received from an untrusted source before it is used in file
+// paths, to prevent directory-traversal attacks.
+func ValidateHashHex(hashHex string) error {
+	if len(hashHex) != 64 {
+		return fmt.Errorf("invalid hash length %d, expected 64", len(hashHex))
+	}
+	for _, c := range hashHex {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return fmt.Errorf("invalid hex character %q (lowercase hex required)", c)
+		}
+	}
+	return nil
+}
+
 // WriteBlob writes data from r to disk under a content-addressed path.
-// Returns the BLAKE3 hash and total bytes written.
-func WriteBlob(storeDir string, r io.Reader) ([32]byte, int64, error) {
+// Returns the BLAKE3 hash, total bytes written, and whether a new file was
+// created. When created is false the blob already existed on disk
+// (deduplication) and the caller must NOT delete it on failure — doing so
+// would destroy a valid blob that other metadata references.
+func WriteBlob(storeDir string, r io.Reader) (hash [32]byte, size int64, created bool, err error) {
 	// Write to a temp file while computing the hash.
 	tmp, err := os.CreateTemp(storeDir, ".blob-*")
 	if err != nil {
-		return [32]byte{}, 0, fmt.Errorf("create temp file: %w", err)
+		return [32]byte{}, 0, false, fmt.Errorf("create temp file: %w", err)
 	}
 	tmpPath := tmp.Name()
 	defer func() {
@@ -32,34 +51,33 @@ func WriteBlob(storeDir string, r io.Reader) ([32]byte, int64, error) {
 	n, err := io.Copy(w, r)
 	if err != nil {
 		tmp.Close()
-		return [32]byte{}, 0, fmt.Errorf("write blob: %w", err)
+		return [32]byte{}, 0, false, fmt.Errorf("write blob: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
-		return [32]byte{}, 0, fmt.Errorf("close temp file: %w", err)
+		return [32]byte{}, 0, false, fmt.Errorf("close temp file: %w", err)
 	}
 
-	var hash [32]byte
 	hasher.Sum(hash[:0])
 
 	// Move to final content-addressed path.
 	dest := blobPath(storeDir, hex.EncodeToString(hash[:]))
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		return [32]byte{}, 0, fmt.Errorf("create shard dir: %w", err)
+		return [32]byte{}, 0, false, fmt.Errorf("create shard dir: %w", err)
 	}
 
 	// If the file already exists (deduplication), just remove the temp.
 	if _, err := os.Stat(dest); err == nil {
 		os.Remove(tmpPath)
 		tmpPath = "" // prevent deferred cleanup
-		return hash, n, nil
+		return hash, n, false, nil
 	}
 
 	if err := os.Rename(tmpPath, dest); err != nil {
-		return [32]byte{}, 0, fmt.Errorf("rename blob: %w", err)
+		return [32]byte{}, 0, false, fmt.Errorf("rename blob: %w", err)
 	}
 	tmpPath = "" // rename succeeded, don't clean up
 
-	return hash, n, nil
+	return hash, n, true, nil
 }
 
 // ReadBlob opens a blob by hash for reading, verifying integrity.

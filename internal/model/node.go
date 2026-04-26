@@ -1,6 +1,10 @@
 package model
 
-import "time"
+import (
+	"encoding/json"
+	"fmt"
+	"time"
+)
 
 // Role determines a node's function in the cluster.
 type Role int
@@ -24,12 +28,43 @@ func (r Role) String() string {
 	}
 }
 
+// MarshalJSON serializes Role as a human-readable string.
+func (r Role) MarshalJSON() ([]byte, error) {
+	return json.Marshal(r.String())
+}
+
+// UnmarshalJSON deserializes Role from a string (or numeric for backwards compat).
+func (r *Role) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := json.Unmarshal(data, &str); err == nil {
+		switch str {
+		case "hybrid", "":
+			*r = RoleHybrid
+		case "coordinator":
+			*r = RoleCoordinator
+		case "worker":
+			*r = RoleWorker
+		default:
+			return fmt.Errorf("unknown role: %s", str)
+		}
+		return nil
+	}
+	// Fall back to numeric for data persisted before this change.
+	var n int
+	if err := json.Unmarshal(data, &n); err != nil {
+		return fmt.Errorf("role must be a string or integer")
+	}
+	*r = Role(n)
+	return nil
+}
+
 // Node represents a cluster member.
 type Node struct {
 	ID           string            `json:"id"`
 	Name         string            `json:"name"`
-	Address      string            `json:"address"`      // gossip address (host:port)
-	GRPCAddress  string            `json:"grpc_address"`  // gRPC transport address (host:port)
+	Address      string            `json:"address"`       // gossip address (host:port)
+	HTTPAddress  string            `json:"http_address"`   // HTTP API address (host:port)
+	GRPCAddress  string            `json:"grpc_address"`   // gRPC transport address (host:port)
 	Role         Role              `json:"role"`
 	Tags         []string          `json:"tags"`
 	Capabilities map[string]string `json:"capabilities,omitempty"`

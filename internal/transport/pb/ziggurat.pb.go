@@ -700,7 +700,10 @@ func (*PushShardMsg_Data) isPushShardMsg_Payload() {}
 type PushShardHeader struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Hash          string                 `protobuf:"bytes,1,opt,name=hash,proto3" json:"hash,omitempty"`
-	Size          int64                  `protobuf:"varint,2,opt,name=size,proto3" json:"size,omitempty"` // expected total size
+	Size          int64                  `protobuf:"varint,2,opt,name=size,proto3" json:"size,omitempty"`                                 // expected total size
+	ShardIndex    int32                  `protobuf:"varint,3,opt,name=shard_index,json=shardIndex,proto3" json:"shard_index,omitempty"`   // EC shard index (-1 or 0 = full blob, >0 = erasure shard)
+	IsEcShard     bool                   `protobuf:"varint,4,opt,name=is_ec_shard,json=isEcShard,proto3" json:"is_ec_shard,omitempty"`    // true when this is an individual erasure-coded shard
+	ErasureMeta   []byte                 `protobuf:"bytes,5,opt,name=erasure_meta,json=erasureMeta,proto3" json:"erasure_meta,omitempty"` // JSON-encoded ErasureParams (sent with EC shards for receiver metadata)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -749,6 +752,27 @@ func (x *PushShardHeader) GetSize() int64 {
 	return 0
 }
 
+func (x *PushShardHeader) GetShardIndex() int32 {
+	if x != nil {
+		return x.ShardIndex
+	}
+	return 0
+}
+
+func (x *PushShardHeader) GetIsEcShard() bool {
+	if x != nil {
+		return x.IsEcShard
+	}
+	return false
+}
+
+func (x *PushShardHeader) GetErasureMeta() []byte {
+	if x != nil {
+		return x.ErasureMeta
+	}
+	return nil
+}
+
 type PushShardResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
@@ -795,6 +819,154 @@ func (x *PushShardResponse) GetOk() bool {
 }
 
 func (x *PushShardResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+type PullECShardRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Hash          string                 `protobuf:"bytes,1,opt,name=hash,proto3" json:"hash,omitempty"`                                // BLAKE3 content hash of the parent object
+	ShardIndex    int32                  `protobuf:"varint,2,opt,name=shard_index,json=shardIndex,proto3" json:"shard_index,omitempty"` // which shard to fetch
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PullECShardRequest) Reset() {
+	*x = PullECShardRequest{}
+	mi := &file_ziggurat_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PullECShardRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PullECShardRequest) ProtoMessage() {}
+
+func (x *PullECShardRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ziggurat_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PullECShardRequest.ProtoReflect.Descriptor instead.
+func (*PullECShardRequest) Descriptor() ([]byte, []int) {
+	return file_ziggurat_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *PullECShardRequest) GetHash() string {
+	if x != nil {
+		return x.Hash
+	}
+	return ""
+}
+
+func (x *PullECShardRequest) GetShardIndex() int32 {
+	if x != nil {
+		return x.ShardIndex
+	}
+	return 0
+}
+
+type RetireReplicaRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Hash          string                 `protobuf:"bytes,1,opt,name=hash,proto3" json:"hash,omitempty"` // BLAKE3 content hash of the object to retire
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RetireReplicaRequest) Reset() {
+	*x = RetireReplicaRequest{}
+	mi := &file_ziggurat_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RetireReplicaRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RetireReplicaRequest) ProtoMessage() {}
+
+func (x *RetireReplicaRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_ziggurat_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RetireReplicaRequest.ProtoReflect.Descriptor instead.
+func (*RetireReplicaRequest) Descriptor() ([]byte, []int) {
+	return file_ziggurat_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *RetireReplicaRequest) GetHash() string {
+	if x != nil {
+		return x.Hash
+	}
+	return ""
+}
+
+type RetireReplicaResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
+	Error         string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RetireReplicaResponse) Reset() {
+	*x = RetireReplicaResponse{}
+	mi := &file_ziggurat_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RetireReplicaResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RetireReplicaResponse) ProtoMessage() {}
+
+func (x *RetireReplicaResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_ziggurat_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RetireReplicaResponse.ProtoReflect.Descriptor instead.
+func (*RetireReplicaResponse) Descriptor() ([]byte, []int) {
+	return file_ziggurat_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *RetireReplicaResponse) GetOk() bool {
+	if x != nil {
+		return x.Ok
+	}
+	return false
+}
+
+func (x *RetireReplicaResponse) GetError() string {
 	if x != nil {
 		return x.Error
 	}
@@ -871,19 +1043,34 @@ const file_ziggurat_proto_rawDesc = "" +
 	"\fPushShardMsg\x123\n" +
 	"\x06header\x18\x01 \x01(\v2\x19.ziggurat.PushShardHeaderH\x00R\x06header\x12\x14\n" +
 	"\x04data\x18\x02 \x01(\fH\x00R\x04dataB\t\n" +
-	"\apayload\"9\n" +
+	"\apayload\"\x9d\x01\n" +
 	"\x0fPushShardHeader\x12\x12\n" +
 	"\x04hash\x18\x01 \x01(\tR\x04hash\x12\x12\n" +
-	"\x04size\x18\x02 \x01(\x03R\x04size\"9\n" +
+	"\x04size\x18\x02 \x01(\x03R\x04size\x12\x1f\n" +
+	"\vshard_index\x18\x03 \x01(\x05R\n" +
+	"shardIndex\x12\x1e\n" +
+	"\vis_ec_shard\x18\x04 \x01(\bR\tisEcShard\x12!\n" +
+	"\ferasure_meta\x18\x05 \x01(\fR\verasureMeta\"9\n" +
 	"\x11PushShardResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error2\xaa\x02\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"I\n" +
+	"\x12PullECShardRequest\x12\x12\n" +
+	"\x04hash\x18\x01 \x01(\tR\x04hash\x12\x1f\n" +
+	"\vshard_index\x18\x02 \x01(\x05R\n" +
+	"shardIndex\"*\n" +
+	"\x14RetireReplicaRequest\x12\x12\n" +
+	"\x04hash\x18\x01 \x01(\tR\x04hash\"=\n" +
+	"\x15RetireReplicaResponse\x12\x0e\n" +
+	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error2\xc0\x03\n" +
 	"\fZigguratNode\x12M\n" +
 	"\fDispatchTask\x12\x1d.ziggurat.DispatchTaskRequest\x1a\x1e.ziggurat.DispatchTaskResponse\x12G\n" +
 	"\n" +
 	"TaskResult\x12\x1b.ziggurat.TaskResultRequest\x1a\x1c.ziggurat.TaskResultResponse\x12>\n" +
 	"\tPullShard\x12\x1a.ziggurat.PullShardRequest\x1a\x13.ziggurat.ShardData0\x01\x12B\n" +
-	"\tPushShard\x12\x16.ziggurat.PushShardMsg\x1a\x1b.ziggurat.PushShardResponse(\x01B6Z4github.com/syzygyhack/ziggurat/internal/transport/pbb\x06proto3"
+	"\tPushShard\x12\x16.ziggurat.PushShardMsg\x1a\x1b.ziggurat.PushShardResponse(\x01\x12B\n" +
+	"\vPullECShard\x12\x1c.ziggurat.PullECShardRequest\x1a\x13.ziggurat.ShardData0\x01\x12P\n" +
+	"\rRetireReplica\x12\x1e.ziggurat.RetireReplicaRequest\x1a\x1f.ziggurat.RetireReplicaResponseB6Z4github.com/syzygyhack/ziggurat/internal/transport/pbb\x06proto3"
 
 var (
 	file_ziggurat_proto_rawDescOnce sync.Once
@@ -897,27 +1084,30 @@ func file_ziggurat_proto_rawDescGZIP() []byte {
 	return file_ziggurat_proto_rawDescData
 }
 
-var file_ziggurat_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_ziggurat_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_ziggurat_proto_goTypes = []any{
-	(*DispatchTaskRequest)(nil),  // 0: ziggurat.DispatchTaskRequest
-	(*TaskResources)(nil),        // 1: ziggurat.TaskResources
-	(*TaskEnvironment)(nil),      // 2: ziggurat.TaskEnvironment
-	(*DispatchTaskResponse)(nil), // 3: ziggurat.DispatchTaskResponse
-	(*TaskResultRequest)(nil),    // 4: ziggurat.TaskResultRequest
-	(*TaskResultResponse)(nil),   // 5: ziggurat.TaskResultResponse
-	(*PullShardRequest)(nil),     // 6: ziggurat.PullShardRequest
-	(*ShardData)(nil),            // 7: ziggurat.ShardData
-	(*PushShardMsg)(nil),         // 8: ziggurat.PushShardMsg
-	(*PushShardHeader)(nil),      // 9: ziggurat.PushShardHeader
-	(*PushShardResponse)(nil),    // 10: ziggurat.PushShardResponse
-	nil,                          // 11: ziggurat.DispatchTaskRequest.EnvEntry
-	nil,                          // 12: ziggurat.DispatchTaskRequest.InputRefsEntry
-	nil,                          // 13: ziggurat.DispatchTaskRequest.ParamsEntry
+	(*DispatchTaskRequest)(nil),   // 0: ziggurat.DispatchTaskRequest
+	(*TaskResources)(nil),         // 1: ziggurat.TaskResources
+	(*TaskEnvironment)(nil),       // 2: ziggurat.TaskEnvironment
+	(*DispatchTaskResponse)(nil),  // 3: ziggurat.DispatchTaskResponse
+	(*TaskResultRequest)(nil),     // 4: ziggurat.TaskResultRequest
+	(*TaskResultResponse)(nil),    // 5: ziggurat.TaskResultResponse
+	(*PullShardRequest)(nil),      // 6: ziggurat.PullShardRequest
+	(*ShardData)(nil),             // 7: ziggurat.ShardData
+	(*PushShardMsg)(nil),          // 8: ziggurat.PushShardMsg
+	(*PushShardHeader)(nil),       // 9: ziggurat.PushShardHeader
+	(*PushShardResponse)(nil),     // 10: ziggurat.PushShardResponse
+	(*PullECShardRequest)(nil),    // 11: ziggurat.PullECShardRequest
+	(*RetireReplicaRequest)(nil),  // 12: ziggurat.RetireReplicaRequest
+	(*RetireReplicaResponse)(nil), // 13: ziggurat.RetireReplicaResponse
+	nil,                           // 14: ziggurat.DispatchTaskRequest.EnvEntry
+	nil,                           // 15: ziggurat.DispatchTaskRequest.InputRefsEntry
+	nil,                           // 16: ziggurat.DispatchTaskRequest.ParamsEntry
 }
 var file_ziggurat_proto_depIdxs = []int32{
-	11, // 0: ziggurat.DispatchTaskRequest.env:type_name -> ziggurat.DispatchTaskRequest.EnvEntry
-	12, // 1: ziggurat.DispatchTaskRequest.input_refs:type_name -> ziggurat.DispatchTaskRequest.InputRefsEntry
-	13, // 2: ziggurat.DispatchTaskRequest.params:type_name -> ziggurat.DispatchTaskRequest.ParamsEntry
+	14, // 0: ziggurat.DispatchTaskRequest.env:type_name -> ziggurat.DispatchTaskRequest.EnvEntry
+	15, // 1: ziggurat.DispatchTaskRequest.input_refs:type_name -> ziggurat.DispatchTaskRequest.InputRefsEntry
+	16, // 2: ziggurat.DispatchTaskRequest.params:type_name -> ziggurat.DispatchTaskRequest.ParamsEntry
 	2,  // 3: ziggurat.DispatchTaskRequest.environment:type_name -> ziggurat.TaskEnvironment
 	1,  // 4: ziggurat.DispatchTaskRequest.resources:type_name -> ziggurat.TaskResources
 	9,  // 5: ziggurat.PushShardMsg.header:type_name -> ziggurat.PushShardHeader
@@ -925,12 +1115,16 @@ var file_ziggurat_proto_depIdxs = []int32{
 	4,  // 7: ziggurat.ZigguratNode.TaskResult:input_type -> ziggurat.TaskResultRequest
 	6,  // 8: ziggurat.ZigguratNode.PullShard:input_type -> ziggurat.PullShardRequest
 	8,  // 9: ziggurat.ZigguratNode.PushShard:input_type -> ziggurat.PushShardMsg
-	3,  // 10: ziggurat.ZigguratNode.DispatchTask:output_type -> ziggurat.DispatchTaskResponse
-	5,  // 11: ziggurat.ZigguratNode.TaskResult:output_type -> ziggurat.TaskResultResponse
-	7,  // 12: ziggurat.ZigguratNode.PullShard:output_type -> ziggurat.ShardData
-	10, // 13: ziggurat.ZigguratNode.PushShard:output_type -> ziggurat.PushShardResponse
-	10, // [10:14] is the sub-list for method output_type
-	6,  // [6:10] is the sub-list for method input_type
+	11, // 10: ziggurat.ZigguratNode.PullECShard:input_type -> ziggurat.PullECShardRequest
+	12, // 11: ziggurat.ZigguratNode.RetireReplica:input_type -> ziggurat.RetireReplicaRequest
+	3,  // 12: ziggurat.ZigguratNode.DispatchTask:output_type -> ziggurat.DispatchTaskResponse
+	5,  // 13: ziggurat.ZigguratNode.TaskResult:output_type -> ziggurat.TaskResultResponse
+	7,  // 14: ziggurat.ZigguratNode.PullShard:output_type -> ziggurat.ShardData
+	10, // 15: ziggurat.ZigguratNode.PushShard:output_type -> ziggurat.PushShardResponse
+	7,  // 16: ziggurat.ZigguratNode.PullECShard:output_type -> ziggurat.ShardData
+	13, // 17: ziggurat.ZigguratNode.RetireReplica:output_type -> ziggurat.RetireReplicaResponse
+	12, // [12:18] is the sub-list for method output_type
+	6,  // [6:12] is the sub-list for method input_type
 	6,  // [6:6] is the sub-list for extension type_name
 	6,  // [6:6] is the sub-list for extension extendee
 	0,  // [0:6] is the sub-list for field type_name
@@ -951,7 +1145,7 @@ func file_ziggurat_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ziggurat_proto_rawDesc), len(file_ziggurat_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   14,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

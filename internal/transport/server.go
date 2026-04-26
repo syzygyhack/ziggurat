@@ -3,9 +3,12 @@ package transport
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"time"
 
 	"github.com/syzygyhack/ziggurat/internal/coord"
@@ -13,11 +16,13 @@ import (
 	"github.com/syzygyhack/ziggurat/internal/store"
 	"github.com/syzygyhack/ziggurat/internal/transport/pb"
 	"github.com/syzygyhack/ziggurat/internal/worker"
+	"github.com/zeebo/blake3"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-const chunkSize = 256 * 1024 // 256 KB per streaming message
+const chunkSize = 256 * 1024      // 256 KB per streaming message
+const maxECShardSize = 256 << 20 // 256 MiB hard cap on EC shard receive buffer
 
 // Server implements the ZigguratNode gRPC service.
 type Server struct {
@@ -81,15 +86,64 @@ func (s *Server) TaskResult(ctx context.Context, req *pb.TaskResultRequest) (*pb
 
 // PullShard streams an object's data from this node to the caller.
 func (s *Server) PullShard(req *pb.PullShardRequest, stream pb.ZigguratNode_PullShardServer) error {
+	if err := store.ValidateHashHex(req.Hash); err != nil {
+		return status.Errorf(codes.InvalidArgument, "invalid hash: %v", err)
+	}
 	rc, err := s.store.GetByHash(stream.Context(), req.Hash)
 	if err != nil {
 		return status.Errorf(codes.NotFound, "object not found: %s", req.Hash)
 	}
-	defer rc.Close()
 
 	buf := make([]byte, chunkSize)
 	for {
 		n, err := rc.Read(buf)
+		if n > 0 {
+			if sendErr := stream.Send(&pb.ShardData{Data: buf[:n]}); sendErr != nil {
+				rc.Close()
+				return sendErr
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			rc.Close()
+			return status.Errorf(codes.Internal, "read object: %v", err)
+		}
+	}
+
+	// Close checks the BLAKE3 integrity digest. If the on-disk blob was
+	// corrupted, this returns an error — surface it so the caller knows
+	// the data it received may be invalid.
+	if err := rc.Close(); err != nil {
+		return status.Errorf(codes.DataLoss, "integrity check failed: %v", err)
+	}
+	return nil
+}
+
+// PullECShard streams a single erasure-coded shard from this node.
+// Used by cross-node EC reconstruction when a remote node lacks enough
+// local shards to decode.
+func (s *Server) PullECShard(req *pb.PullECShardRequest, stream pb.ZigguratNode_PullECShardServer) error {
+	if err := store.ValidateHashHex(req.Hash); err != nil {
+		return status.Errorf(codes.InvalidArgument, "invalid hash: %v", err)
+	}
+
+	idx := int(req.ShardIndex)
+	if idx < 0 {
+		return status.Errorf(codes.InvalidArgument, "negative shard index")
+	}
+
+	path := store.ShardPath(s.store.Dir(), req.Hash, idx)
+	f, err := os.Open(path)
+	if err != nil {
+		return status.Errorf(codes.NotFound, "shard %d not found for %s", idx, req.Hash[:12])
+	}
+	defer f.Close()
+
+	buf := make([]byte, chunkSize)
+	for {
+		n, err := f.Read(buf)
 		if n > 0 {
 			if sendErr := stream.Send(&pb.ShardData{Data: buf[:n]}); sendErr != nil {
 				return sendErr
@@ -99,7 +153,7 @@ func (s *Server) PullShard(req *pb.PullShardRequest, stream pb.ZigguratNode_Pull
 			break
 		}
 		if err != nil {
-			return status.Errorf(codes.Internal, "read object: %v", err)
+			return status.Errorf(codes.Internal, "read shard: %v", err)
 		}
 	}
 	return nil
@@ -107,6 +161,9 @@ func (s *Server) PullShard(req *pb.PullShardRequest, stream pb.ZigguratNode_Pull
 
 // PushShard receives an object's data from a remote node and stores it locally.
 // The first message must carry the header (hash + size).
+// When the header has is_ec_shard=true, the data is stored as an individual
+// erasure-coded shard (via WriteSingleShard) and receiver-side ObjectMeta with
+// ErasureParams is created so the node can eventually reconstruct the object.
 func (s *Server) PushShard(stream pb.ZigguratNode_PushShardServer) error {
 	// Read header.
 	first, err := stream.Recv()
@@ -118,26 +175,163 @@ func (s *Server) PushShard(stream pb.ZigguratNode_PushShardServer) error {
 		return status.Errorf(codes.InvalidArgument, "first message must be header")
 	}
 
-	// Collect data from stream into a pipe that feeds WriteBlob.
+	// Validate hash is exactly 32 hex-encoded bytes. This prevents
+	// directory-traversal attacks via crafted hash strings containing
+	// path separators or ".." sequences.
+	if err := store.ValidateHashHex(hdr.Hash); err != nil {
+		return stream.SendAndClose(&pb.PushShardResponse{
+			Ok:    false,
+			Error: fmt.Sprintf("invalid hash: %v", err),
+		})
+	}
+
+	if hdr.GetIsEcShard() {
+		return s.pushECShard(stream, hdr)
+	}
+	return s.pushFullBlob(stream, hdr)
+}
+
+// pushECShard handles receiving an individual erasure-coded shard. Buffers in
+// memory (shards are small — original_size / data_shards).
+//
+// Validates:
+//   - erasure_meta is present and valid JSON
+//   - shard_index is within [0, total_shards)
+//   - received bytes match the expected shard hash (if ShardHashes are provided)
+//
+// Returns Ok:false if any validation fails or metadata creation errors.
+func (s *Server) pushECShard(stream pb.ZigguratNode_PushShardServer, hdr *pb.PushShardHeader) error {
+	// Parse and validate erasure_meta up front — we need it for validation.
+	ecJSON := hdr.GetErasureMeta()
+	if len(ecJSON) == 0 {
+		return stream.SendAndClose(&pb.PushShardResponse{
+			Ok:    false,
+			Error: "missing erasure_meta in EC shard push",
+		})
+	}
+	var ecParams model.ErasureParams
+	if err := json.Unmarshal(ecJSON, &ecParams); err != nil {
+		return stream.SendAndClose(&pb.PushShardResponse{
+			Ok:    false,
+			Error: fmt.Sprintf("invalid erasure_meta: %v", err),
+		})
+	}
+
+	// Reject nonsensical shard counts — they would corrupt metadata.
+	if ecParams.DataShards <= 0 || ecParams.ParityShards <= 0 {
+		return stream.SendAndClose(&pb.PushShardResponse{
+			Ok:    false,
+			Error: fmt.Sprintf("invalid shard counts: data=%d parity=%d", ecParams.DataShards, ecParams.ParityShards),
+		})
+	}
+
+	// Bounds check shard_index.
+	totalShards := ecParams.DataShards + ecParams.ParityShards
+	idx := int(hdr.ShardIndex)
+	if idx < 0 || idx >= totalShards {
+		return stream.SendAndClose(&pb.PushShardResponse{
+			Ok:    false,
+			Error: fmt.Sprintf("shard_index %d out of range [0, %d)", idx, totalShards),
+		})
+	}
+
+	// Compute receive limit: use claimed ShardSize with headroom, but never
+	// exceed the hard cap. This prevents unbounded memory consumption.
+	limit := int64(maxECShardSize)
+	if ecParams.ShardSize > 0 && ecParams.ShardSize*2 < limit {
+		limit = ecParams.ShardSize * 2
+	}
+
+	// Read shard data with size enforcement.
+	var buf bytes.Buffer
+	for {
+		msg, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		if chunk := msg.GetData(); len(chunk) > 0 {
+			if int64(buf.Len())+int64(len(chunk)) > limit {
+				return stream.SendAndClose(&pb.PushShardResponse{
+					Ok:    false,
+					Error: fmt.Sprintf("shard data exceeds size limit (%d bytes)", limit),
+				})
+			}
+			buf.Write(chunk)
+		}
+	}
+
+	data := buf.Bytes()
+
+	// Verify shard integrity against ShardHashes if available.
+	if idx < len(ecParams.ShardHashes) && ecParams.ShardHashes[idx] != "" {
+		hasher := blake3.New()
+		hasher.Write(data)
+		var actual [32]byte
+		hasher.Sum(actual[:0])
+		actualHex := hex.EncodeToString(actual[:])
+		if actualHex != ecParams.ShardHashes[idx] {
+			expected := ecParams.ShardHashes[idx]
+			if len(expected) > 12 {
+				expected = expected[:12]
+			}
+			return stream.SendAndClose(&pb.PushShardResponse{
+				Ok:    false,
+				Error: fmt.Sprintf("shard %d hash mismatch: expected %s, got %s", idx, expected, actualHex[:12]),
+			})
+		}
+	}
+
+	if err := store.WriteSingleShard(s.store.Dir(), hdr.Hash, idx, data); err != nil {
+		return stream.SendAndClose(&pb.PushShardResponse{
+			Ok:    false,
+			Error: fmt.Sprintf("write EC shard: %v", err),
+		})
+	}
+
+	// Record actual bytes written, not the sender's claimed size.
+	ecParams.ShardSize = int64(len(data))
+
+	// Create receiver-side ObjectMeta with ErasureParams — fail if this errors
+	// so the sender knows the shard state is incomplete. Clean up the shard
+	// file on failure to avoid orphaning bytes that GC can't reclaim.
+	if err := s.store.PutECShardReplica(hdr.Hash, &ecParams); err != nil {
+		store.DeleteSingleShard(s.store.Dir(), hdr.Hash, idx)
+		return stream.SendAndClose(&pb.PushShardResponse{
+			Ok:    false,
+			Error: fmt.Sprintf("create EC shard metadata: %v", err),
+		})
+	}
+
+	s.log.Info("ec shard received", "hash", hdr.Hash[:12], "index", idx, "size", len(data))
+	return stream.SendAndClose(&pb.PushShardResponse{Ok: true})
+}
+
+// pushFullBlob handles receiving a full object blob. Streams directly to disk
+// via a pipe to avoid buffering the entire object in memory.
+func (s *Server) pushFullBlob(stream pb.ZigguratNode_PushShardServer, hdr *pb.PushShardHeader) error {
 	pr, pw := io.Pipe()
 
 	var writeErr error
 	var writeHash [32]byte
 	var writeSize int64
+	var writeCreated bool
 	done := make(chan struct{})
 
 	go func() {
 		defer close(done)
-		hash, size, werr := store.WriteBlob(s.store.Dir(), pr)
+		hash, size, created, werr := store.WriteBlob(s.store.Dir(), pr)
 		if werr != nil {
 			writeErr = werr
 			return
 		}
 		writeHash = hash
 		writeSize = size
+		writeCreated = created
 	}()
 
-	// Stream data chunks into the pipe.
 	for {
 		msg, err := stream.Recv()
 		if err == io.EOF {
@@ -148,14 +342,12 @@ func (s *Server) PushShard(stream pb.ZigguratNode_PushShardServer) error {
 			<-done
 			return err
 		}
-		chunk := msg.GetData()
-		if len(chunk) == 0 {
-			continue
-		}
-		if _, err := pw.Write(chunk); err != nil {
-			pw.CloseWithError(err)
-			<-done
-			return status.Errorf(codes.Internal, "write pipe: %v", err)
+		if chunk := msg.GetData(); len(chunk) > 0 {
+			if _, err := pw.Write(chunk); err != nil {
+				pw.CloseWithError(err)
+				<-done
+				return status.Errorf(codes.Internal, "write pipe: %v", err)
+			}
 		}
 	}
 	pw.Close()
@@ -168,18 +360,24 @@ func (s *Server) PushShard(stream pb.ZigguratNode_PushShardServer) error {
 		})
 	}
 
-	// Verify hash matches claimed hash.
 	gotHash := fmt.Sprintf("%x", writeHash)
 	if gotHash != hdr.Hash {
+		// Only remove the blob if we created it. If WriteBlob deduplicated
+		// against an existing file, deleting it would destroy a valid blob
+		// that other metadata references.
+		if writeCreated {
+			store.DeleteBlob(s.store.Dir(), gotHash)
+		}
 		return stream.SendAndClose(&pb.PushShardResponse{
 			Ok:    false,
 			Error: fmt.Sprintf("hash mismatch: expected %s, got %s", hdr.Hash, gotHash),
 		})
 	}
 
-	// Create receiver-side ObjectMeta so the replica is visible to GC,
-	// Stats, and NodesForHash.
 	if err := s.store.PutReplica(gotHash, writeHash, writeSize); err != nil {
+		if writeCreated {
+			store.DeleteBlob(s.store.Dir(), gotHash)
+		}
 		return stream.SendAndClose(&pb.PushShardResponse{
 			Ok:    false,
 			Error: fmt.Sprintf("store replica metadata: %v", err),
@@ -188,6 +386,20 @@ func (s *Server) PushShard(stream pb.ZigguratNode_PushShardServer) error {
 
 	s.log.Info("shard received", "hash", hdr.Hash[:12], "size", hdr.Size)
 	return stream.SendAndClose(&pb.PushShardResponse{Ok: true})
+}
+
+// RetireReplica handles a request from a remote node to retire a local replica.
+// Validates the hash, then unpins and decrements the refcount so local GC can
+// reclaim the object after its grace period.
+func (s *Server) RetireReplica(ctx context.Context, req *pb.RetireReplicaRequest) (*pb.RetireReplicaResponse, error) {
+	if err := store.ValidateHashHex(req.Hash); err != nil {
+		return &pb.RetireReplicaResponse{Ok: false, Error: fmt.Sprintf("invalid hash: %v", err)}, nil
+	}
+	if err := s.store.RetireReplica(req.Hash); err != nil {
+		return &pb.RetireReplicaResponse{Ok: false, Error: err.Error()}, nil
+	}
+	s.log.Info("replica retired", "hash", req.Hash[:12])
+	return &pb.RetireReplicaResponse{Ok: true}, nil
 }
 
 // protoToTask converts a DispatchTaskRequest to a model.Task.
@@ -266,18 +478,3 @@ func taskToProto(t *model.Task) *pb.DispatchTaskRequest {
 	return req
 }
 
-// taskResultToBytes is a helper that reads a PullShard response into a byte slice.
-// Used internally for small objects; large objects should use streaming directly.
-func readAllChunks(stream pb.ZigguratNode_PullShardClient) ([]byte, error) {
-	var buf bytes.Buffer
-	for {
-		chunk, err := stream.Recv()
-		if err == io.EOF {
-			return buf.Bytes(), nil
-		}
-		if err != nil {
-			return nil, err
-		}
-		buf.Write(chunk.Data)
-	}
-}

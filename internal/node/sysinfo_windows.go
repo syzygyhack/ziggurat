@@ -55,3 +55,9 @@ func detectDiskAvail(path string) int64 {
 	}
 	return int64(freeBytesAvailable)
 }
+
+// detectStorageClass returns the storage type for the given path.
+// On Windows, detailed block device probing is not available; default to "ssd".
+func detectStorageClass(path string) string {
+	return "ssd"
+}

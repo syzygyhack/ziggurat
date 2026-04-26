@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -101,6 +102,26 @@ func (c *Client) FetchResult(ctx context.Context, addr string, taskID string) (*
 	}, nil
 }
 
+// RetireReplica tells a remote node to release its hold on a replica.
+// Returns an error if the RPC fails. The GC callback uses the error to
+// defer local metadata deletion and retry next sweep, preventing
+// permanently orphaned replicas on peers.
+func (c *Client) RetireReplica(ctx context.Context, addr string, hash string) error {
+	cc, err := c.conn(addr)
+	if err != nil {
+		return err
+	}
+	client := pb.NewZigguratNodeClient(cc)
+	resp, err := client.RetireReplica(ctx, &pb.RetireReplicaRequest{Hash: hash})
+	if err != nil {
+		return fmt.Errorf("retire replica on %s: %w", addr, err)
+	}
+	if !resp.Ok {
+		return fmt.Errorf("retire replica rejected by %s: %s", addr, resp.Error)
+	}
+	return nil
+}
+
 // PullObject downloads an object by content hash from a remote node.
 // Implements coord.TaskDispatcher.
 func (c *Client) PullObject(ctx context.Context, addr string, hash string) (io.ReadCloser, error) {
@@ -123,8 +144,59 @@ func (c *Client) PullShard(ctx context.Context, addr string, hash string) (io.Re
 	return &streamReader{stream: stream}, nil
 }
 
+// PullECShard downloads a single erasure-coded shard from a remote node.
+// Returns the raw shard bytes. Used by cross-node EC reconstruction.
+func (c *Client) PullECShard(ctx context.Context, addr string, hash string, shardIndex int) ([]byte, error) {
+	cc, err := c.conn(addr)
+	if err != nil {
+		return nil, err
+	}
+
+	client := pb.NewZigguratNodeClient(cc)
+	stream, err := client.PullECShard(ctx, &pb.PullECShardRequest{
+		Hash:       hash,
+		ShardIndex: int32(shardIndex),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("pull EC shard from %s: %w", addr, err)
+	}
+
+	var buf bytes.Buffer
+	for {
+		msg, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("recv EC shard from %s: %w", addr, err)
+		}
+		buf.Write(msg.Data)
+	}
+	return buf.Bytes(), nil
+}
+
 // PushShard uploads an object to a remote node.
 func (c *Client) PushShard(ctx context.Context, addr string, hash string, size int64, r io.Reader) error {
+	return c.pushData(ctx, addr, &pb.PushShardHeader{
+		Hash: hash,
+		Size: size,
+	}, r)
+}
+
+// PushECShard uploads a single erasure-coded shard to a remote node.
+// ecMeta is JSON-serialized ErasureParams so the receiver can create metadata.
+func (c *Client) PushECShard(ctx context.Context, addr string, hash string, shardIndex int, data []byte, ecMeta []byte) error {
+	return c.pushData(ctx, addr, &pb.PushShardHeader{
+		Hash:        hash,
+		Size:        int64(len(data)),
+		ShardIndex:  int32(shardIndex),
+		IsEcShard:   true,
+		ErasureMeta: ecMeta,
+	}, bytes.NewReader(data))
+}
+
+// pushData sends a PushShard stream with the given header and data.
+func (c *Client) pushData(ctx context.Context, addr string, hdr *pb.PushShardHeader, r io.Reader) error {
 	cc, err := c.conn(addr)
 	if err != nil {
 		return err
@@ -139,10 +211,7 @@ func (c *Client) PushShard(ctx context.Context, addr string, hash string, size i
 	// Send header first.
 	if err := stream.Send(&pb.PushShardMsg{
 		Payload: &pb.PushShardMsg_Header{
-			Header: &pb.PushShardHeader{
-				Hash: hash,
-				Size: size,
-			},
+			Header: hdr,
 		},
 	}); err != nil {
 		return fmt.Errorf("send header: %w", err)

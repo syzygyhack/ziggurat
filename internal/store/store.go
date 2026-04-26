@@ -10,20 +10,33 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/syzygyhack/ziggurat/internal/config"
 	"github.com/syzygyhack/ziggurat/internal/model"
+	"github.com/zeebo/blake3"
 	"go.etcd.io/bbolt"
 )
 
+// ShardFetcher fetches individual EC shards from remote nodes.
+// Used by getByHashEC for cross-node reconstruction when local shards
+// are insufficient.
+type ShardFetcher interface {
+	// FetchShard downloads shard shardIndex of the object identified by hashHex
+	// from the node identified by nodeID. The implementation resolves nodeID
+	// to a network address. Returns raw shard bytes.
+	FetchShard(ctx context.Context, nodeID string, hashHex string, shardIndex int) ([]byte, error)
+}
+
 // Store is the content-addressed object store with namespace resolution.
 type Store struct {
-	cfg     config.StorageConfig
-	dir     string // root directory for shard files
-	db      *bbolt.DB
-	log     *slog.Logger
-	onPut   func(ctx context.Context, hashHex string) // optional post-Put callback (e.g. replication)
-	erasure *ErasureCodec                              // nil when erasure coding disabled
+	cfg          config.StorageConfig
+	dir          string // root directory for shard files
+	db           *bbolt.DB
+	log          *slog.Logger
+	onPut        func(ctx context.Context, hashHex string) // optional post-Put callback (e.g. replication)
+	erasure      *ErasureCodec                              // nil when erasure coding disabled
+	shardFetcher ShardFetcher                               // optional; enables cross-node EC reconstruction
 }
 
 // New creates a Store rooted at the given data directory.
@@ -93,6 +106,12 @@ func (s *Store) SetOnPut(fn func(ctx context.Context, hashHex string)) {
 	s.onPut = fn
 }
 
+// SetShardFetcher registers a remote shard fetcher for cross-node EC
+// reconstruction. Not goroutine-safe — call before the store handles traffic.
+func (s *Store) SetShardFetcher(sf ShardFetcher) {
+	s.shardFetcher = sf
+}
+
 // Close shuts down the store, closing the metadata database.
 func (s *Store) Close() error {
 	return s.db.Close()
@@ -101,7 +120,7 @@ func (s *Store) Close() error {
 // Put stores data from r under the given namespace key. Returns the content hash.
 // Large objects are automatically erasure-coded when the codec is enabled.
 func (s *Store) Put(ctx context.Context, nsKey string, r io.Reader) (string, error) {
-	hash, size, err := WriteBlob(s.dir, r)
+	hash, size, _, err := WriteBlob(s.dir, r)
 	if err != nil {
 		return "", fmt.Errorf("write blob: %w", err)
 	}
@@ -184,6 +203,9 @@ func (s *Store) createErasureShards(hashHex string, size int64) error {
 func (s *Store) setErasureParams(hashHex string, params *model.ErasureParams) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketObjects)
+		if b == nil {
+			return nil
+		}
 		data := b.Get([]byte(hashHex))
 		if data == nil {
 			// Object not yet in metadata — it will be added by putOrIncrRef.
@@ -224,13 +246,14 @@ func (s *Store) GetByHash(ctx context.Context, hashHex string) (io.ReadCloser, e
 
 	// If erasure coding is available, try reconstruction from shards.
 	if s.erasure != nil {
-		return s.getByHashEC(hashHex)
+		return s.getByHashEC(ctx, hashHex)
 	}
 	return nil, err
 }
 
-// getByHashEC reconstructs an erasure-coded object from local shards.
-func (s *Store) getByHashEC(hashHex string) (io.ReadCloser, error) {
+// getByHashEC reconstructs an erasure-coded object from local shards,
+// fetching missing shards from remote nodes when a ShardFetcher is configured.
+func (s *Store) getByHashEC(ctx context.Context, hashHex string) (io.ReadCloser, error) {
 	meta, err := s.getMeta(hashHex)
 	if err != nil {
 		return nil, fmt.Errorf("get meta for EC read: %w", err)
@@ -239,9 +262,12 @@ func (s *Store) getByHashEC(hashHex string) (io.ReadCloser, error) {
 		return nil, fmt.Errorf("object %s has no erasure params", hashHex[:12])
 	}
 
+	ec := meta.Erasure
+	totalShards := ec.DataShards + ec.ParityShards
+
 	// Parse shard hashes.
-	shardHashes := make([][32]byte, len(meta.Erasure.ShardHashes))
-	for i, h := range meta.Erasure.ShardHashes {
+	shardHashes := make([][32]byte, len(ec.ShardHashes))
+	for i, h := range ec.ShardHashes {
 		decoded, err := hex.DecodeString(h)
 		if err != nil {
 			return nil, fmt.Errorf("decode shard hash %d: %w", i, err)
@@ -249,17 +275,96 @@ func (s *Store) getByHashEC(hashHex string) (io.ReadCloser, error) {
 		copy(shardHashes[i][:], decoded)
 	}
 
-	codec, err := NewErasureCodec(meta.Erasure.DataShards, meta.Erasure.ParityShards)
-	if err != nil {
-		return nil, fmt.Errorf("create codec: %w", err)
+	// Reuse the store's codec when parameters match to avoid repeated allocation.
+	codec := s.erasure
+	if codec == nil || codec.DataShards != ec.DataShards || codec.ParityShards != ec.ParityShards {
+		var err error
+		codec, err = NewErasureCodec(ec.DataShards, ec.ParityShards)
+		if err != nil {
+			return nil, fmt.Errorf("create codec: %w", err)
+		}
 	}
 
-	data, err := ReadAndDecode(s.dir, hashHex, meta.Erasure.OriginalSize, codec, shardHashes)
+	// Read locally available shards.
+	shards := ReadLocalShards(s.dir, hashHex, totalShards, shardHashes)
+
+	available := 0
+	for _, sh := range shards {
+		if sh != nil {
+			available++
+		}
+	}
+
+	// If local shards are insufficient and we have a remote fetcher, try
+	// to pull missing shards from peer nodes listed in metadata.
+	if available < ec.DataShards && s.shardFetcher != nil {
+		// Build index -> nodeID from shard placements (origin stores these).
+		placementAddr := make(map[int]string)
+		for _, sp := range meta.Shards {
+			if sp.Index >= 0 && sp.Index < totalShards {
+				placementAddr[sp.Index] = sp.NodeID
+			}
+		}
+		// Receiver nodes don't have meta.Shards populated — fall back to
+		// ShardNodes from ErasureParams (set by the origin during distribution).
+		if len(placementAddr) == 0 && len(ec.ShardNodes) > 0 {
+			for idx := 0; idx < totalShards && idx < len(ec.ShardNodes); idx++ {
+				if ec.ShardNodes[idx] != "" {
+					placementAddr[idx] = ec.ShardNodes[idx]
+				}
+			}
+		}
+
+		for idx := 0; idx < totalShards && available < ec.DataShards; idx++ {
+			if shards[idx] != nil {
+				continue // already have this shard locally
+			}
+			nodeID, ok := placementAddr[idx]
+			if !ok || nodeID == "" {
+				continue
+			}
+			data, err := s.shardFetcher.FetchShard(ctx, nodeID, hashHex, idx)
+			if err != nil {
+				s.log.Debug("remote shard fetch failed", "hash", hashHex[:12], "index", idx, "node", nodeID, "err", err)
+				continue
+			}
+			// Verify fetched shard integrity.
+			if idx < len(shardHashes) {
+				hasher := blake3.New()
+				hasher.Write(data)
+				var actual [32]byte
+				hasher.Sum(actual[:0])
+				if actual != shardHashes[idx] {
+					s.log.Warn("remote shard integrity mismatch", "hash", hashHex[:12], "index", idx, "node", nodeID)
+					continue
+				}
+			}
+			shards[idx] = data
+			available++
+		}
+	}
+
+	if available < ec.DataShards {
+		return nil, fmt.Errorf("need %d shards but only %d available for %s", ec.DataShards, available, hashHex[:12])
+	}
+
+	decoded, err := codec.Decode(shards, ec.OriginalSize)
 	if err != nil {
 		return nil, fmt.Errorf("reconstruct %s: %w", hashHex[:12], err)
 	}
 
-	return io.NopCloser(bytes.NewReader(data)), nil
+	// Re-verify the reconstructed blob against its content hash.
+	// Without this, a malicious peer could poison shards so the
+	// reconstruction produces bytes that don't match the content address.
+	hasher := blake3.New()
+	hasher.Write(decoded)
+	var gotHash [32]byte
+	hasher.Sum(gotHash[:0])
+	if hex.EncodeToString(gotHash[:]) != hashHex {
+		return nil, fmt.Errorf("reconstructed data integrity check failed for %s", hashHex[:12])
+	}
+
+	return io.NopCloser(bytes.NewReader(decoded)), nil
 }
 
 // ErasureCodec returns the store's erasure codec, or nil if disabled.
@@ -298,11 +403,149 @@ func (s *Store) List(ctx context.Context, prefix string) ([]string, error) {
 
 // PutReplica creates ObjectMeta for a blob that was already written to disk
 // (e.g. via PushShard). This ensures the replica is visible to GC, Stats, and
-// NodesForHash. If metadata already exists for this hash the refcount is
-// incremented instead.
+// NodesForHash. Idempotent: if metadata already exists and is active (RefCount > 0),
+// this is a no-op. If the object was retired (RefCount == 0), it is re-activated.
+// This prevents transport retries from inflating refcounts and blocking retirement.
 func (s *Store) PutReplica(hashHex string, hash [32]byte, size int64) error {
-	tier := classifyTier(size, s.cfg.TierThresholds)
-	return s.putOrIncrRef(hashHex, hash, size, tier, "")
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketObjects)
+		if b == nil {
+			return fmt.Errorf("objects bucket not initialized")
+		}
+		if existing := b.Get([]byte(hashHex)); existing != nil {
+			var meta model.ObjectMeta
+			if err := json.Unmarshal(existing, &meta); err != nil {
+				return err
+			}
+			if meta.RefCount > 0 {
+				return nil // already active — idempotent on retry
+			}
+			// Re-activate a retired replica.
+			meta.RefCount = 1
+			meta.UnreferencedAt = time.Time{}
+			updated, err := json.Marshal(&meta)
+			if err != nil {
+				return err
+			}
+			return b.Put([]byte(hashHex), updated)
+		}
+
+		tier := classifyTier(size, s.cfg.TierThresholds)
+		meta := model.ObjectMeta{
+			Hash:      hash,
+			Size:      size,
+			Tier:      tier,
+			Strategy:  model.Replicated,
+			RefCount:  1,
+			CreatedAt: time.Now(),
+		}
+		data, err := json.Marshal(&meta)
+		if err != nil {
+			return err
+		}
+		return b.Put([]byte(hashHex), data)
+	})
+}
+
+// PutECShardReplica creates ObjectMeta with ErasureParams for an EC shard
+// that was received from a remote node. This lets the receiver eventually
+// reconstruct the full object once enough shards arrive. If metadata already
+// exists and is pinned, this is a no-op (idempotent on retry). If metadata
+// exists but was retired, the record is re-pinned with RefCount=1 so GC
+// will not reclaim it.
+func (s *Store) PutECShardReplica(hashHex string, ecParams *model.ErasureParams) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketObjects)
+		if b == nil {
+			return fmt.Errorf("objects bucket not initialized")
+		}
+		if existing := b.Get([]byte(hashHex)); existing != nil {
+			var meta model.ObjectMeta
+			if err := json.Unmarshal(existing, &meta); err != nil {
+				return err
+			}
+			if meta.Pinned {
+				return nil // already active — idempotent on retry
+			}
+			// Re-pin: a retired replica receiving fresh shard data must be
+			// marked active again so GC does not reclaim it.
+			meta.Pinned = true
+			meta.RefCount = 1
+			meta.UnreferencedAt = time.Time{} // clear GC timer
+			if ecParams.ShardSize > 0 {
+				meta.Size = ecParams.ShardSize
+			}
+			updated, err := json.Marshal(&meta)
+			if err != nil {
+				return err
+			}
+			return b.Put([]byte(hashHex), updated)
+		}
+
+		decoded, err := hex.DecodeString(hashHex)
+		if err != nil {
+			return fmt.Errorf("decode hash: %w", err)
+		}
+		var h [32]byte
+		copy(h[:], decoded)
+
+		// Size reflects the local disk footprint (one shard), not the
+		// full original object, so Stats().UsedBytes is accurate.
+		localSize := ecParams.ShardSize
+		if localSize <= 0 {
+			localSize = ecParams.OriginalSize // fallback for legacy metadata
+		}
+
+		meta := model.ObjectMeta{
+			Hash:      h,
+			Size:      localSize,
+			Tier:      classifyTier(localSize, s.cfg.TierThresholds),
+			Strategy:  model.ErasureCoded,
+			Erasure:   ecParams,
+			Pinned:    true, // EC shard replicas must not be GC'd — other nodes depend on them for reconstruction
+			RefCount:  1,
+			CreatedAt: time.Now(),
+		}
+		data, err := json.Marshal(&meta)
+		if err != nil {
+			return err
+		}
+		return b.Put([]byte(hashHex), data)
+	})
+}
+
+// RetireReplica removes a replica's hold on an object by unpinning it and
+// decrementing its refcount. This starts the GC grace period for the replica.
+// Called when the origin node (or its GC) signals that the object is no longer
+// needed cluster-wide. Safe to call multiple times (idempotent unpin).
+func (s *Store) RetireReplica(hashHex string) error {
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketObjects)
+		if b == nil {
+			return nil
+		}
+		data := b.Get([]byte(hashHex))
+		if data == nil {
+			return nil // already gone
+		}
+		var meta model.ObjectMeta
+		if err := json.Unmarshal(data, &meta); err != nil {
+			return err
+		}
+		meta.Pinned = false
+		meta.RefCount--
+		if meta.RefCount < 0 {
+			meta.RefCount = 0
+		}
+		if meta.RefCount == 0 && meta.UnreferencedAt.IsZero() {
+			meta.UnreferencedAt = time.Now()
+		}
+		updated, err := json.Marshal(&meta)
+		if err != nil {
+			return err
+		}
+		return b.Put([]byte(hashHex), updated)
+	})
 }
 
 // IncrRef increments the reference count for the object with the given hash.
@@ -329,6 +572,9 @@ func (s *Store) Stats() StorageStats {
 
 	s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketObjects)
+		if b == nil {
+			return nil
+		}
 		return b.ForEach(func(k, v []byte) error {
 			var meta model.ObjectMeta
 			if err := json.Unmarshal(v, &meta); err != nil {

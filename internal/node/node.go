@@ -16,6 +16,7 @@ import (
 	"github.com/syzygyhack/ziggurat/internal/config"
 	"github.com/syzygyhack/ziggurat/internal/coord"
 	"github.com/syzygyhack/ziggurat/internal/metrics"
+	"github.com/syzygyhack/ziggurat/internal/model"
 	"github.com/syzygyhack/ziggurat/internal/scheduler"
 	"github.com/syzygyhack/ziggurat/internal/store"
 	"github.com/syzygyhack/ziggurat/internal/transport"
@@ -66,6 +67,22 @@ func (p *registryPeerProvider) Peers(exclude string) []store.Peer {
 		peers = append(peers, store.Peer{NodeID: n.ID, Addr: n.GRPCAddress})
 	}
 	return peers
+}
+
+// registryShardFetcher adapts transport.Client + cluster.Registry to
+// store.ShardFetcher. Translates nodeIDs to gRPC addresses via the registry
+// before fetching.
+type registryShardFetcher struct {
+	client   *transport.Client
+	registry *cluster.Registry
+}
+
+func (f *registryShardFetcher) FetchShard(ctx context.Context, nodeID string, hashHex string, shardIndex int) ([]byte, error) {
+	node, ok := f.registry.Get(nodeID)
+	if !ok || node.GRPCAddress == "" {
+		return nil, fmt.Errorf("no address for node %s", nodeID)
+	}
+	return f.client.PullECShard(ctx, node.GRPCAddress, hashHex, shardIndex)
 }
 
 // Start initializes all subsystems and begins serving.
@@ -158,6 +175,9 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 				log.Info("requeued tasks from departed node", "node", departedID, "count", n)
 			}
 			if repl != nil {
+				// Purge stale placements BEFORE repair so the repair pass
+				// doesn't count the departed node toward the replication factor.
+				repl.RemoveNodePlacements(departedID)
 				repl.TriggerRepair(repairCtx)
 			}
 		})
@@ -189,12 +209,57 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 	if cl != nil {
 		pp := &registryPeerProvider{registry: cl.Registry}
 		repl = store.NewReplicator(s, nodeID, cfg.Storage.ReplicationFactor, tClient, pp, log.With("component", "replicator"))
+		repl.SetECPusher(tClient)
+		repl.SetRing(cl.Registry.Ring)
 		s.SetOnPut(func(ctx context.Context, hashHex string) {
 			if err := repl.AfterPut(ctx, hashHex); err != nil {
 				log.Warn("replication failed", "hash", hashHex[:12], "err", err)
 			}
 		})
 		apiSrv.SetUnderReplicated(repl.UnderReplicatedCount)
+
+		// Wire shard fetcher for cross-node EC reconstruction.
+		s.SetShardFetcher(&registryShardFetcher{
+			client:   tClient,
+			registry: cl.Registry,
+		})
+	}
+
+	// Wire GC retirement callback: when an object is collected locally,
+	// notify peer nodes that held replicas to retire them. Returns false
+	// if any reachable peer fails retirement, causing GC to defer deletion
+	// and retry next sweep (prevents permanently pinned orphan replicas).
+	if cl != nil {
+		gcClient := tClient
+		gcPeers := &registryPeerProvider{registry: cl.Registry}
+		gc.SetOnCollect(func(hashHex string, shards []model.ShardPlacement) bool {
+			peers := gcPeers.Peers(nodeID)
+			addrMap := make(map[string]string, len(peers))
+			for _, p := range peers {
+				addrMap[p.NodeID] = p.Addr
+			}
+			allOK := true
+			for _, s := range shards {
+				if s.NodeID == nodeID {
+					continue
+				}
+				addr, ok := addrMap[s.NodeID]
+				if !ok || addr == "" {
+					// Node is not in the cluster — it left or was removed.
+					// Its placements were already purged by RemoveNodePlacements.
+					continue
+				}
+				// Short timeout so an unreachable peer doesn't stall the
+				// GC sweep. The peer's own GC handles cleanup eventually.
+				retireCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				if err := gcClient.RetireReplica(retireCtx, addr, hashHex); err != nil {
+					log.Warn("retire replica failed", "hash", hashHex[:12], "peer", addr, "err", err)
+					allOK = false
+				}
+				cancel()
+			}
+			return allOK
+		})
 	}
 
 	// Initialize pipeline manager (uses the tasks DB for persistence).

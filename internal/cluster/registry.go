@@ -17,13 +17,15 @@ type Registry struct {
 	nodes   map[string]*model.Node // keyed by node ID
 	log     *slog.Logger
 	onLeave func(nodeID string) // optional callback when a node departs
+	Ring    *HashRing            // consistent hash ring, updated on join/leave
 }
 
-// NewRegistry creates an empty node registry.
+// NewRegistry creates an empty node registry with a consistent hash ring.
 func NewRegistry(log *slog.Logger) *Registry {
 	return &Registry{
 		nodes: make(map[string]*model.Node),
 		log:   log,
+		Ring:  NewHashRing(0), // 0 = use default vnodes (128)
 	}
 }
 
@@ -44,16 +46,21 @@ func (r *Registry) Add(mn *memberlist.Node) {
 		return
 	}
 
-	// Build gRPC address from the memberlist node's IP and advertised gRPC port.
+	// Build gRPC and HTTP addresses from the memberlist node's IP and advertised ports.
 	grpcAddr := ""
 	if meta.GRPCPort > 0 {
 		grpcAddr = fmt.Sprintf("%s:%d", mn.Addr.String(), meta.GRPCPort)
+	}
+	httpAddr := ""
+	if meta.HTTPPort > 0 {
+		httpAddr = fmt.Sprintf("%s:%d", mn.Addr.String(), meta.HTTPPort)
 	}
 
 	n := &model.Node{
 		ID:           meta.ID,
 		Name:         meta.Name,
 		Address:      mn.Address(),
+		HTTPAddress:  httpAddr,
 		GRPCAddress:  grpcAddr,
 		Tags:         meta.Tags,
 		Capabilities: meta.Caps,
@@ -74,6 +81,7 @@ func (r *Registry) Add(mn *memberlist.Node) {
 	r.nodes[meta.ID] = n
 	r.mu.Unlock()
 
+	r.Ring.AddNode(meta.ID)
 	r.log.Info("cluster: node joined", "id", meta.ID, "name", meta.Name, "addr", mn.Address())
 }
 
@@ -94,6 +102,9 @@ func (r *Registry) Remove(mn *memberlist.Node) {
 		}
 		fn := r.onLeave
 		r.mu.Unlock()
+		if removedID != "" {
+			r.Ring.RemoveNode(removedID)
+		}
 		if fn != nil && removedID != "" {
 			fn(removedID)
 		}
@@ -105,6 +116,7 @@ func (r *Registry) Remove(mn *memberlist.Node) {
 	fn := r.onLeave
 	r.mu.Unlock()
 
+	r.Ring.RemoveNode(meta.ID)
 	r.log.Info("cluster: node left", "id", meta.ID, "name", meta.Name)
 	if fn != nil {
 		fn(meta.ID)
@@ -126,6 +138,9 @@ func (r *Registry) Update(mn *memberlist.Node) {
 		n.Address = mn.Address()
 		if meta.GRPCPort > 0 {
 			n.GRPCAddress = fmt.Sprintf("%s:%d", mn.Addr.String(), meta.GRPCPort)
+		}
+		if meta.HTTPPort > 0 {
+			n.HTTPAddress = fmt.Sprintf("%s:%d", mn.Addr.String(), meta.HTTPPort)
 		}
 	}
 	r.mu.Unlock()

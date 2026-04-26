@@ -17,6 +17,9 @@ var bucketObjects = []byte("objects")
 func (s *Store) putOrIncrRef(hashHex string, hash [32]byte, size int64, tier model.Tier, nsKey string) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketObjects)
+		if b == nil {
+			return fmt.Errorf("objects bucket not initialized")
+		}
 		existing := b.Get([]byte(hashHex))
 
 		if existing != nil {
@@ -46,6 +49,9 @@ func (s *Store) getMeta(hashHex string) (*model.ObjectMeta, error) {
 	var meta model.ObjectMeta
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketObjects)
+		if b == nil {
+			return fmt.Errorf("objects bucket not initialized")
+		}
 		data := b.Get([]byte(hashHex))
 		if data == nil {
 			return fmt.Errorf("object not found: %s", hashHex[:12])
@@ -72,6 +78,9 @@ func (s *Store) decrRef(hashHex string) error {
 
 func incrRefInTx(tx *bbolt.Tx, hashHex string) error {
 	b := tx.Bucket(bucketObjects)
+	if b == nil {
+		return fmt.Errorf("objects bucket not initialized")
+	}
 	data := b.Get([]byte(hashHex))
 	if data == nil {
 		return fmt.Errorf("object not found: %s", hashHex[:12])
@@ -92,6 +101,9 @@ func incrRefInTx(tx *bbolt.Tx, hashHex string) error {
 
 func decrRefInTx(tx *bbolt.Tx, hashHex string) error {
 	b := tx.Bucket(bucketObjects)
+	if b == nil {
+		return fmt.Errorf("objects bucket not initialized")
+	}
 	data := b.Get([]byte(hashHex))
 	if data == nil {
 		return nil // object already gone

@@ -36,6 +36,13 @@ func DetectCapabilities(dataDir string) map[string]string {
 		}
 	}
 
+	// Storage class detection (best-effort).
+	if dataDir != "" {
+		if sc := detectStorageClass(dataDir); sc != "" {
+			caps["storage.class"] = sc
+		}
+	}
+
 	// GPU detection via nvidia-smi (best-effort).
 	detectNvidiaGPU(caps)
 
