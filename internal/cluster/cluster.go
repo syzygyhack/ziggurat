@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net"
 	"strconv"
+	"time"
 
 	"github.com/hashicorp/memberlist"
 	"github.com/syzygyhack/ziggurat/internal/config"
@@ -23,6 +24,8 @@ type Config struct {
 	Tags          []string
 	Caps          map[string]string
 	Role          string // "hybrid", "coordinator", "worker"
+	Discovery     string // "auto", "mdns", "seeds", "static" — controls peer discovery
+	ClusterName   string // logical cluster name for mDNS filtering
 }
 
 // Cluster manages gossip-based membership and the node registry.
@@ -30,6 +33,7 @@ type Cluster struct {
 	ml       *memberlist.Memberlist
 	Registry *Registry
 	delegate *delegate
+	mdns     *MDNSServer // nil if mDNS is disabled
 	log      *slog.Logger
 }
 
@@ -80,16 +84,63 @@ func New(cfg Config, log *slog.Logger) (*Cluster, error) {
 		log:      log,
 	}
 
-	// Join existing cluster if seeds provided.
-	if len(cfg.Seeds) > 0 {
-		n, err := ml.Join(cfg.Seeds)
+	// Determine seeds: explicit seeds take priority, then mDNS discovery.
+	seeds := cfg.Seeds
+	discovery := cfg.Discovery
+	if discovery == "" {
+		discovery = "auto"
+	}
+
+	if len(seeds) == 0 && (discovery == "auto" || discovery == "mdns") {
+		clusterName := cfg.ClusterName
+		if clusterName == "" {
+			clusterName = "default"
+		}
+		discovered, err := DiscoverAddrs(MDNSDiscoverConfig{
+			ClusterName: clusterName,
+			Timeout:     3 * time.Second,
+		}, log)
 		if err != nil {
-			log.Warn("cluster: join failed, running standalone", "seeds", cfg.Seeds, "err", err)
+			log.Debug("cluster: mDNS discovery failed", "err", err)
+		} else if len(discovered) > 0 {
+			seeds = discovered
+			log.Info("cluster: discovered peers via mDNS", "count", len(seeds))
+		}
+	}
+
+	// Join existing cluster if seeds are available (explicit or discovered).
+	if len(seeds) > 0 {
+		n, err := ml.Join(seeds)
+		if err != nil {
+			log.Warn("cluster: join failed, running standalone", "seeds", seeds, "err", err)
 		} else {
 			log.Info("cluster: joined", "contacted", n, "members", ml.NumMembers())
 		}
 	} else {
 		log.Info("cluster: started new cluster", "members", ml.NumMembers())
+	}
+
+	// Start mDNS advertisement so other nodes can discover us.
+	if discovery == "auto" || discovery == "mdns" {
+		gossipPort := cfg.BindPort
+		if gossipPort == 0 {
+			// Memberlist auto-assigned a port; read the actual bound port.
+			gossipPort = int(ml.LocalNode().Port)
+		}
+		clusterName := cfg.ClusterName
+		if clusterName == "" {
+			clusterName = "default"
+		}
+		mdnsSrv, err := NewMDNSServer(MDNSConfig{
+			NodeID:      cfg.NodeID,
+			GossipPort:  gossipPort,
+			ClusterName: clusterName,
+		}, log)
+		if err != nil {
+			log.Warn("cluster: mDNS advertisement failed", "err", err)
+		} else {
+			c.mdns = mdnsSrv
+		}
 	}
 
 	return c, nil
@@ -105,8 +156,11 @@ func (c *Cluster) Leave() error {
 	return c.ml.Leave(0)
 }
 
-// Shutdown forcefully stops the memberlist agent.
+// Shutdown forcefully stops the memberlist agent and mDNS advertiser.
 func (c *Cluster) Shutdown() error {
+	if c.mdns != nil {
+		c.mdns.Shutdown()
+	}
 	return c.ml.Shutdown()
 }
 
@@ -160,6 +214,8 @@ func ConfigFromNode(nodeID string, nodeCfg config.NodeConfig, netCfg config.Netw
 		Tags:          nodeCfg.Tags,
 		Caps:          caps,
 		Role:          nodeRole(nodeCfg.Role),
+		Discovery:     clusterCfg.Discovery,
+		ClusterName:   clusterCfg.Name,
 	}
 }
 
