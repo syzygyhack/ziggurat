@@ -635,6 +635,84 @@ func (r *Replicator) Rebalance(ctx context.Context, newNodeID string) int {
 	return pushed
 }
 
+// MigrateAll pushes all local objects to available peers. Used during drain
+// to ensure data survives before the node shuts down. Objects that already
+// have at least one remote placement are skipped. Returns the number of
+// objects successfully migrated.
+func (r *Replicator) MigrateAll(ctx context.Context) int {
+	peers := r.peers.Peers(r.localID)
+	if len(peers) == 0 {
+		r.log.Warn("migrate: no peers available")
+		return 0
+	}
+
+	// Collect all local objects.
+	type objEntry struct {
+		hashHex string
+		meta    model.ObjectMeta
+	}
+	var objects []objEntry
+	r.store.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketObjects)
+		if b == nil {
+			return nil
+		}
+		return b.ForEach(func(k, v []byte) error {
+			var meta model.ObjectMeta
+			if err := json.Unmarshal(v, &meta); err != nil {
+				return nil
+			}
+			objects = append(objects, objEntry{hashHex: string(k), meta: meta})
+			return nil
+		})
+	})
+
+	migrated := 0
+	peerIdx := 0
+	for _, obj := range objects {
+		if ctx.Err() != nil {
+			break
+		}
+
+		// Skip if any remote node already has a copy.
+		hasRemote := false
+		for _, sp := range obj.meta.Shards {
+			if sp.NodeID != r.localID {
+				hasRemote = true
+				break
+			}
+		}
+		if hasRemote {
+			continue
+		}
+
+		// Round-robin across available peers.
+		peer := peers[peerIdx%len(peers)]
+		peerIdx++
+
+		rc, err := r.store.GetByHash(ctx, obj.hashHex)
+		if err != nil {
+			r.log.Warn("migrate: open blob failed", "hash", obj.hashHex[:12], "err", err)
+			continue
+		}
+		err = r.pusher.PushShard(ctx, peer.Addr, obj.hashHex, obj.meta.Size, rc)
+		rc.Close()
+		if err != nil {
+			r.log.Warn("migrate: push failed", "hash", obj.hashHex[:12], "peer", peer.Addr, "err", err)
+			continue
+		}
+
+		if err := r.addPlacement(obj.hashHex, peer.NodeID, 0); err != nil {
+			r.log.Warn("migrate: record placement failed", "hash", obj.hashHex[:12], "err", err)
+		}
+
+		migrated++
+		r.log.Info("migrated object", "hash", obj.hashHex[:12], "peer", peer.Addr)
+	}
+
+	return migrated
+}
+
 // NodesForHash returns the node IDs that hold a given object. Implements
 // the scheduler.ObjectLocator interface.
 func (r *Replicator) NodesForHash(hash string) []string {

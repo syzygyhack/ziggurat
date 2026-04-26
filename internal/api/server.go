@@ -33,6 +33,7 @@ type Server struct {
 	startTime        time.Time
 	maxUploadSize    int64      // 0 = no limit
 	underReplicated  func() int // optional; returns under-replicated object count
+	onDrain          func()     // optional; triggers shard migration on drain
 	pipelines        *coord.PipelineManager
 	role             string     // "hybrid", "coordinator", "worker"
 }
@@ -102,6 +103,12 @@ func (s *Server) SetPipelineManager(pm *coord.PipelineManager) {
 // under-replicated objects. Used by the health endpoint.
 func (s *Server) SetUnderReplicated(fn func() int) {
 	s.underReplicated = fn
+}
+
+// SetOnDrain registers a callback triggered when the /drain endpoint is
+// called. Used to start shard migration to peer nodes.
+func (s *Server) SetOnDrain(fn func()) {
+	s.onDrain = fn
 }
 
 // Start begins listening on the given address.

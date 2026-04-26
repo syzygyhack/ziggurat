@@ -60,6 +60,11 @@ func (s *Server) getNode(w http.ResponseWriter, r *http.Request) {
 func (s *Server) drain(w http.ResponseWriter, r *http.Request) {
 	s.coord.Drain()
 
+	// Trigger shard migration in the background if configured.
+	if s.onDrain != nil {
+		go s.onDrain()
+	}
+
 	resp := map[string]any{
 		"status":        "draining",
 		"tasks_running": s.coord.RunningCount(),

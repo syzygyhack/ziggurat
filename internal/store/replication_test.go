@@ -680,6 +680,54 @@ func TestReplicator_Rebalance_SkipsNonRingNode(t *testing.T) {
 	}
 }
 
+func TestReplicator_MigrateAll_PushesAllObjects(t *testing.T) {
+	r, s, pusher := testReplicator(t, 2, []string{"peer1:7101"})
+
+	// Store two objects but DON'T call AfterPut (simulates objects that
+	// exist locally but haven't been replicated yet).
+	hash1, err := s.Put(context.Background(), "test/obj1", bytes.NewReader([]byte("data-one")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash2, err := s.Put(context.Background(), "test/obj2", bytes.NewReader([]byte("data-two")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = hash1
+	_ = hash2
+
+	migrated := r.MigrateAll(context.Background())
+
+	if migrated != 2 {
+		t.Fatalf("expected 2 migrated, got %d", migrated)
+	}
+	if len(pusher.calls) != 2 {
+		t.Fatalf("expected 2 pushes, got %d", len(pusher.calls))
+	}
+}
+
+func TestReplicator_MigrateAll_SkipsAlreadyReplicated(t *testing.T) {
+	r, s, pusher := testReplicator(t, 2, []string{"peer1:7101"})
+
+	// Store and replicate.
+	data := []byte("already replicated")
+	hash, err := s.Put(context.Background(), "test/obj1", bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.AfterPut(context.Background(), hash)
+	pusher.calls = nil // reset
+
+	// MigrateAll should skip — peer already has a placement.
+	migrated := r.MigrateAll(context.Background())
+	if migrated != 0 {
+		t.Fatalf("expected 0 migrated (already replicated), got %d", migrated)
+	}
+	if len(pusher.calls) != 0 {
+		t.Fatalf("expected 0 pushes, got %d", len(pusher.calls))
+	}
+}
+
 func TestStore_PutReplica_Idempotent(t *testing.T) {
 	tmpDir := t.TempDir()
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))

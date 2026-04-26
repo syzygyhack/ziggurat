@@ -234,6 +234,15 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 		})
 		apiSrv.SetUnderReplicated(repl.UnderReplicatedCount)
 
+		// Wire drain callback: migrate local shards to peers before shutdown.
+		replForDrain := repl
+		apiSrv.SetOnDrain(func() {
+			n := replForDrain.MigrateAll(repairCtx)
+			if n > 0 {
+				log.Info("drain: migrated objects to peers", "count", n)
+			}
+		})
+
 		// Wire shard fetcher for cross-node EC reconstruction.
 		s.SetShardFetcher(&registryShardFetcher{
 			client:   tClient,
