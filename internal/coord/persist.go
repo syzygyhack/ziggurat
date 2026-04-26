@@ -4,9 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/syzygyhack/ziggurat/internal/dbutil"
 	"github.com/syzygyhack/ziggurat/internal/model"
 	"go.etcd.io/bbolt"
 )
+
+// tasksDBVersion is the current schema version for tasks.db.
+// Increment when making breaking changes to the tasks bucket format.
+const tasksDBVersion = 1
 
 var bucketTasks = []byte("tasks")
 
@@ -18,6 +23,11 @@ type Persist struct {
 
 // NewPersist creates a persistence layer, ensuring the tasks bucket exists.
 func NewPersist(db *bbolt.DB) (*Persist, error) {
+	// Check schema version before accessing data.
+	if err := dbutil.CheckSchema(db, "tasks.db", tasksDBVersion); err != nil {
+		return nil, err
+	}
+
 	err := db.Update(func(tx *bbolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists(bucketTasks)
 		return err
