@@ -16,6 +16,7 @@ type Registry struct {
 	mu      sync.RWMutex
 	nodes   map[string]*model.Node // keyed by node ID
 	log     *slog.Logger
+	onJoin  func(nodeID string) // optional callback when a new node joins
 	onLeave func(nodeID string) // optional callback when a node departs
 	Ring    *HashRing            // consistent hash ring, updated on join/leave
 }
@@ -27,6 +28,15 @@ func NewRegistry(log *slog.Logger) *Registry {
 		log:   log,
 		Ring:  NewHashRing(0), // 0 = use default vnodes (128)
 	}
+}
+
+// OnJoin registers a callback that fires after a new node is added to the
+// registry. The callback receives the joined node's ID. Used by the
+// replicator to trigger shard rebalancing.
+func (r *Registry) OnJoin(fn func(nodeID string)) {
+	r.mu.Lock()
+	r.onJoin = fn
+	r.mu.Unlock()
 }
 
 // OnLeave registers a callback that fires after a node is removed from the
@@ -79,10 +89,15 @@ func (r *Registry) Add(mn *memberlist.Node) {
 
 	r.mu.Lock()
 	r.nodes[meta.ID] = n
+	fn := r.onJoin
 	r.mu.Unlock()
 
 	r.Ring.AddNode(meta.ID)
 	r.log.Info("cluster: node joined", "id", meta.ID, "name", meta.Name, "addr", mn.Address())
+
+	if fn != nil {
+		fn(meta.ID)
+	}
 }
 
 // Remove deregisters a node and fires the OnLeave callback if set.

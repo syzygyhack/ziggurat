@@ -581,6 +581,105 @@ func TestReplicator_RemoveNodePlacements(t *testing.T) {
 	}
 }
 
+func TestReplicator_Rebalance_PushesToNewNode(t *testing.T) {
+	r, s, pusher := testReplicator(t, 2, []string{"peer1:7101"})
+
+	// Store an object and replicate it.
+	data := []byte("rebalance me to new node")
+	hash, err := s.Put(context.Background(), "test/obj1", bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.AfterPut(context.Background(), hash)
+
+	// Verify initial state: pushed to peer1, local + peer-1 placements.
+	if len(pusher.calls) != 1 {
+		t.Fatalf("expected 1 initial push, got %d", len(pusher.calls))
+	}
+	pusher.calls = nil // reset
+
+	// Set up a ring where the new node is assigned this object.
+	// Ring returns [local-node, new-node] — new-node should get a copy.
+	r.SetRing(&mockRing{nodes: []string{"local-node", "new-node"}})
+	newPeers := []Peer{
+		{NodeID: "peer-1", Addr: "peer1:7101"},
+		{NodeID: "new-node", Addr: "new-node:7101"},
+	}
+	r.peers = &mockPeers{peers: newPeers}
+
+	// Rebalance for the new node.
+	rebalanced := r.Rebalance(context.Background(), "new-node")
+
+	if rebalanced != 1 {
+		t.Fatalf("expected 1 rebalanced, got %d", rebalanced)
+	}
+	if len(pusher.calls) != 1 {
+		t.Fatalf("expected 1 push to new node, got %d", len(pusher.calls))
+	}
+	if pusher.calls[0].addr != "new-node:7101" {
+		t.Fatalf("expected push to new-node:7101, got %s", pusher.calls[0].addr)
+	}
+}
+
+func TestReplicator_Rebalance_SkipsAlreadyPlaced(t *testing.T) {
+	r, s, pusher := testReplicator(t, 2, []string{"peer1:7101"})
+
+	data := []byte("already placed object")
+	hash, err := s.Put(context.Background(), "test/obj1", bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.AfterPut(context.Background(), hash)
+	pusher.calls = nil
+
+	// Manually add placement for new-node (as if it already has a copy).
+	if err := r.addPlacement(hash, "new-node", 0); err != nil {
+		t.Fatal(err)
+	}
+
+	r.SetRing(&mockRing{nodes: []string{"local-node", "new-node"}})
+	r.peers = &mockPeers{peers: []Peer{
+		{NodeID: "new-node", Addr: "new-node:7101"},
+	}}
+
+	rebalanced := r.Rebalance(context.Background(), "new-node")
+
+	// Should skip — new-node already has the object.
+	if rebalanced != 0 {
+		t.Fatalf("expected 0 rebalanced (already placed), got %d", rebalanced)
+	}
+	if len(pusher.calls) != 0 {
+		t.Fatalf("expected 0 pushes (already placed), got %d", len(pusher.calls))
+	}
+}
+
+func TestReplicator_Rebalance_SkipsNonRingNode(t *testing.T) {
+	r, s, pusher := testReplicator(t, 2, nil)
+
+	data := []byte("not for new node")
+	hash, err := s.Put(context.Background(), "test/obj1", bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.AfterPut(context.Background(), hash)
+	pusher.calls = nil
+
+	// Ring does NOT include new-node — it shouldn't get a copy.
+	r.SetRing(&mockRing{nodes: []string{"local-node", "other-node"}})
+	r.peers = &mockPeers{peers: []Peer{
+		{NodeID: "new-node", Addr: "new-node:7101"},
+	}}
+
+	rebalanced := r.Rebalance(context.Background(), "new-node")
+
+	if rebalanced != 0 {
+		t.Fatalf("expected 0 rebalanced (not in ring), got %d", rebalanced)
+	}
+	if len(pusher.calls) != 0 {
+		t.Fatalf("expected 0 pushes (not in ring), got %d", len(pusher.calls))
+	}
+}
+
 func TestStore_PutReplica_Idempotent(t *testing.T) {
 	tmpDir := t.TempDir()
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))

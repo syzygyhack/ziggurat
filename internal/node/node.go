@@ -181,6 +181,22 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 				repl.TriggerRepair(repairCtx)
 			}
 		})
+
+		// When a new node joins, rebalance local objects to it if the
+		// hash ring now assigns them there.
+		cl.Registry.OnJoin(func(joinedID string) {
+			if joinedID == nodeID {
+				return // skip self
+			}
+			if repl != nil {
+				go func() {
+					n := repl.Rebalance(repairCtx, joinedID)
+					if n > 0 {
+						log.Info("rebalanced objects to new node", "node", joinedID, "count", n)
+					}
+				}()
+			}
+		})
 	}
 
 	// Initialize API server. Use storage capacity as upload limit if set,

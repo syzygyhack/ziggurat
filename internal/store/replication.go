@@ -531,6 +531,110 @@ func (r *Replicator) RemoveNodePlacements(departedID string) {
 	})
 }
 
+// Rebalance pushes local objects to a newly joined node when the consistent
+// hash ring indicates they should live there. Only replicated (full-blob)
+// objects are considered; EC shard redistribution is handled by the repair
+// loop. Returns the number of objects pushed.
+func (r *Replicator) Rebalance(ctx context.Context, newNodeID string) int {
+	if r.ring == nil {
+		return 0
+	}
+
+	// Resolve the new node's gRPC address.
+	peers := r.peers.Peers(r.localID)
+	var newAddr string
+	for _, p := range peers {
+		if p.NodeID == newNodeID {
+			newAddr = p.Addr
+			break
+		}
+	}
+	if newAddr == "" {
+		r.log.Debug("rebalance: no address for new node", "node", newNodeID)
+		return 0
+	}
+
+	// Collect all local objects.
+	type objEntry struct {
+		hashHex string
+		meta    model.ObjectMeta
+	}
+	var objects []objEntry
+	r.store.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketObjects)
+		if b == nil {
+			return nil
+		}
+		return b.ForEach(func(k, v []byte) error {
+			var meta model.ObjectMeta
+			if err := json.Unmarshal(v, &meta); err != nil {
+				return nil
+			}
+			objects = append(objects, objEntry{hashHex: string(k), meta: meta})
+			return nil
+		})
+	})
+
+	pushed := 0
+	for _, obj := range objects {
+		if ctx.Err() != nil {
+			break
+		}
+
+		// Skip EC objects — those are handled by repair/distribution.
+		if obj.meta.Erasure != nil {
+			continue
+		}
+
+		// Check if the ring assigns this object to the new node.
+		ringNodes := r.ring.GetNodes(obj.hashHex, r.factor)
+		assigned := false
+		for _, n := range ringNodes {
+			if n == newNodeID {
+				assigned = true
+				break
+			}
+		}
+		if !assigned {
+			continue
+		}
+
+		// Check if the new node already has a placement.
+		alreadyPlaced := false
+		for _, sp := range obj.meta.Shards {
+			if sp.NodeID == newNodeID {
+				alreadyPlaced = true
+				break
+			}
+		}
+		if alreadyPlaced {
+			continue
+		}
+
+		// Push full blob to the new node.
+		rc, err := r.store.GetByHash(ctx, obj.hashHex)
+		if err != nil {
+			r.log.Warn("rebalance: open blob failed", "hash", obj.hashHex[:12], "err", err)
+			continue
+		}
+		err = r.pusher.PushShard(ctx, newAddr, obj.hashHex, obj.meta.Size, rc)
+		rc.Close()
+		if err != nil {
+			r.log.Warn("rebalance: push failed", "hash", obj.hashHex[:12], "peer", newAddr, "err", err)
+			continue
+		}
+
+		if err := r.addPlacement(obj.hashHex, newNodeID, 0); err != nil {
+			r.log.Warn("rebalance: record placement failed", "hash", obj.hashHex[:12], "err", err)
+		}
+
+		pushed++
+		r.log.Info("rebalanced object to new node", "hash", obj.hashHex[:12], "peer", newAddr)
+	}
+
+	return pushed
+}
+
 // NodesForHash returns the node IDs that hold a given object. Implements
 // the scheduler.ObjectLocator interface.
 func (r *Replicator) NodesForHash(hash string) []string {
