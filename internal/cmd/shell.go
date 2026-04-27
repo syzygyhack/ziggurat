@@ -162,6 +162,12 @@ func buildShellCommands() []shellCommand {
 			usage: "top",
 			run:   shellTop,
 		},
+		{
+			name:  "logs",
+			help:  "Stream live task logs",
+			usage: "logs <task-id>",
+			run:   shellLogs,
+		},
 	}
 }
 
@@ -414,6 +420,13 @@ func shellTop(args []string) error {
 	}
 	renderTop(snap, false)
 	return nil
+}
+
+func shellLogs(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: logs <task-id>")
+	}
+	return streamLogs(args[0])
 }
 
 // splitArgs splits a command line respecting simple quoting.

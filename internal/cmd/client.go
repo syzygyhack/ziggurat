@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/syzygyhack/ziggurat/internal/config"
 )
 
@@ -156,6 +157,34 @@ func printJSON(v any) {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	enc.Encode(v)
+}
+
+// printCompletionSummary writes a short task result summary to stderr.
+// Shows status, wall time, exit code, and output_ref when present.
+func printCompletionSummary(cmd *cobra.Command, id string, result map[string]any) {
+	w := cmd.ErrOrStderr()
+	status, _ := result["status"].(string)
+	exitCode, _ := result["exit_code"].(float64)
+	outputRef, _ := result["output_ref"].(string)
+
+	wallTime := ""
+	if metrics, ok := result["metrics"].(map[string]any); ok {
+		wallTime, _ = metrics["wall_time"].(string)
+	}
+
+	parts := []string{fmt.Sprintf("Task %s %s", shortID(id), status)}
+	if wallTime != "" && wallTime != "0s" {
+		parts = append(parts, fmt.Sprintf("in %s", wallTime))
+	}
+	if exitCode != 0 {
+		parts = append(parts, fmt.Sprintf("(exit %d)", int(exitCode)))
+	}
+	fmt.Fprintln(w, strings.Join(parts, " "))
+
+	if outputRef != "" {
+		fmt.Fprintf(w, "Output: %s\n", outputRef)
+		fmt.Fprintf(w, "  retrieve: ziggurat get %s <dest>\n", outputRef)
+	}
 }
 
 // storeKeyPath returns "/store/<escaped-key>" suitable for use in API URLs.

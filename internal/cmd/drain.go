@@ -58,9 +58,16 @@ func printDrainResult(resp *http.Response, err error) error {
 	running := int(runningF)
 	queued := int(queuedF)
 
-	fmt.Printf("Status:        %s\n", status)
-	fmt.Printf("Tasks running: %d\n", running)
-	fmt.Printf("Tasks queued:  %d\n", queued)
+	fmt.Printf("Status:          %s\n", status)
+	fmt.Printf("Tasks running:   %d\n", running)
+	fmt.Printf("Tasks queued:    %d\n", queued)
+
+	if objectsF, ok := result["storage_objects"].(float64); ok {
+		fmt.Printf("Storage objects: %d\n", int(objectsF))
+	}
+	if msg, ok := result["message"].(string); ok && msg != "" {
+		fmt.Printf("\n%s\n", msg)
+	}
 
 	return nil
 }

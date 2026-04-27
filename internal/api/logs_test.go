@@ -97,6 +97,74 @@ func TestAPI_TaskLogs_NotFound(t *testing.T) {
 	resp.Body.Close()
 }
 
+func TestAPI_TaskLogs_CompletedTask(t *testing.T) {
+	ts, srv := testServerWithRef(t)
+
+	lb := worker.NewLogBroadcaster()
+	srv.SetLogBroadcaster(lb)
+
+	// Submit a task and complete it so it has persisted stdout/stderr.
+	resp := postJSON(t, ts.URL+"/api/v1/tasks", map[string]any{
+		"command": []string{"echo", "hello"},
+	})
+	var task model.Task
+	decodeJSON(t, resp, &task)
+
+	// Complete the task via coordinator (set stdout/stderr, mark completed).
+	srv.coord.MarkRunning(task.ID, "worker-1")
+	srv.coord.Complete(task.ID, 0, "persisted stdout\n", "persisted stderr\n", "", "", 0)
+
+	// Request logs for the completed task — should get persisted output, not hang.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/api/v1/tasks/"+task.ID+"/logs", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	// Parse SSE events.
+	var events []worker.LogEvent
+	var gotDone bool
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "data: ") {
+			data := strings.TrimPrefix(line, "data: ")
+			var ev worker.LogEvent
+			if err := json.Unmarshal([]byte(data), &ev); err == nil && ev.Stream != "" {
+				events = append(events, ev)
+			}
+			// Check for done with status.
+			var doneEv map[string]any
+			if err := json.Unmarshal([]byte(data), &doneEv); err == nil {
+				if _, ok := doneEv["status"]; ok {
+					gotDone = true
+				}
+			}
+		}
+	}
+
+	if len(events) < 2 {
+		t.Fatalf("expected at least 2 events (stdout + stderr), got %d", len(events))
+	}
+	if events[0].Stream != "stdout" || events[0].Data != "persisted stdout\n" {
+		t.Fatalf("unexpected stdout event: %+v", events[0])
+	}
+	if events[1].Stream != "stderr" || events[1].Data != "persisted stderr\n" {
+		t.Fatalf("unexpected stderr event: %+v", events[1])
+	}
+	if !gotDone {
+		t.Fatal("expected done event with status")
+	}
+}
+
 func TestAPI_TaskLogs_NoBroadcaster(t *testing.T) {
 	ts := testServer(t)
 

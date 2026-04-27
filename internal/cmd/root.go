@@ -35,6 +35,7 @@ func NewRootCmd(version, commit string) *cobra.Command {
 	root.AddCommand(newTaskCmd())
 	root.AddCommand(newCancelCmd())
 	root.AddCommand(newWaitCmd())
+	root.AddCommand(newLogsCmd())
 	root.AddCommand(newDeadLetterCmd())
 	root.AddCommand(newBatchCmd())
 	root.AddCommand(newPipelineCmd())

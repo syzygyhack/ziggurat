@@ -150,14 +150,15 @@ func (pm *PipelineManager) SubmitPipeline(ctx context.Context, p *model.Pipeline
 	return p, nil
 }
 
-// GetPipeline returns a pipeline by ID.
+// GetPipeline returns a pipeline by ID or unambiguous prefix (min 4 chars).
 func (pm *PipelineManager) GetPipeline(id string) (*model.Pipeline, error) {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
-	p, ok := pm.pipelines[id]
-	if !ok {
-		return nil, fmt.Errorf("pipeline not found: %s", id)
+	resolved, err := pm.resolveID(id)
+	if err != nil {
+		return nil, err
 	}
+	p := pm.pipelines[resolved]
 	cp := *p
 	cp.Stages = make([]model.Stage, len(p.Stages))
 	copy(cp.Stages, p.Stages)
@@ -214,10 +215,11 @@ func (pm *PipelineManager) CancelPipeline(id string) (*model.Pipeline, error) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
-	p, ok := pm.pipelines[id]
-	if !ok {
-		return nil, fmt.Errorf("pipeline not found: %s", id)
+	resolved, err := pm.resolveID(id)
+	if err != nil {
+		return nil, err
 	}
+	p := pm.pipelines[resolved]
 
 	for i := range p.Stages {
 		s := &p.Stages[i]
@@ -244,10 +246,11 @@ func (pm *PipelineManager) RetryPipeline(ctx context.Context, id string) (*model
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
-	p, ok := pm.pipelines[id]
-	if !ok {
-		return nil, fmt.Errorf("pipeline not found: %s", id)
+	resolved, err := pm.resolveID(id)
+	if err != nil {
+		return nil, err
 	}
+	p := pm.pipelines[resolved]
 	if p.Status != model.PipelineFailed {
 		return nil, fmt.Errorf("can only retry failed pipelines, current status: %s", p.Status)
 	}
@@ -437,6 +440,29 @@ func (pm *PipelineManager) findStageByTask(taskID string) (*model.Pipeline, *mod
 		}
 	}
 	return nil, nil
+}
+
+// resolveID finds the full pipeline ID from an exact match or unambiguous
+// prefix (minimum 4 characters). Caller must hold at least pm.mu.RLock.
+func (pm *PipelineManager) resolveID(id string) (string, error) {
+	if _, ok := pm.pipelines[id]; ok {
+		return id, nil
+	}
+	if len(id) >= 4 {
+		found := ""
+		for pid := range pm.pipelines {
+			if len(pid) > len(id) && pid[:len(id)] == id {
+				if found != "" {
+					return "", fmt.Errorf("ambiguous pipeline ID prefix %q", id)
+				}
+				found = pid
+			}
+		}
+		if found != "" {
+			return found, nil
+		}
+	}
+	return "", fmt.Errorf("pipeline not found: %s", id)
 }
 
 func (pm *PipelineManager) persist(p *model.Pipeline) error {

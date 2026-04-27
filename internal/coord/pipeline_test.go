@@ -261,6 +261,51 @@ func TestPipeline_ConstraintsAndImagePropagation(t *testing.T) {
 	}
 }
 
+func TestPipeline_PrefixResolution(t *testing.T) {
+	_, pm, _ := setupPipelineTest(t)
+
+	p := &model.Pipeline{
+		Name:   "test-prefix",
+		Stages: []model.Stage{{ID: "a", Command: []string{"echo"}}},
+	}
+
+	result, err := pm.SubmitPipeline(context.Background(), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Full ID works.
+	got, err := pm.GetPipeline(result.ID)
+	if err != nil {
+		t.Fatalf("full ID lookup failed: %v", err)
+	}
+	if got.ID != result.ID {
+		t.Fatalf("expected %s, got %s", result.ID, got.ID)
+	}
+
+	// 8-char prefix works (standard shortID length).
+	prefix := result.ID[:8]
+	got, err = pm.GetPipeline(prefix)
+	if err != nil {
+		t.Fatalf("prefix lookup failed: %v", err)
+	}
+	if got.ID != result.ID {
+		t.Fatalf("expected %s, got %s", result.ID, got.ID)
+	}
+
+	// Cancel and retry also support prefix.
+	_, err = pm.CancelPipeline(prefix)
+	if err != nil {
+		t.Fatalf("cancel by prefix failed: %v", err)
+	}
+
+	// Too short prefix fails.
+	_, err = pm.GetPipeline("ab")
+	if err == nil {
+		t.Fatal("expected error for short prefix")
+	}
+}
+
 func TestPipeline_CycleDetection(t *testing.T) {
 	_, pm, _ := setupPipelineTest(t)
 

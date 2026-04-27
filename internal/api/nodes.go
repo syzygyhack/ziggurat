@@ -65,10 +65,13 @@ func (s *Server) drain(w http.ResponseWriter, r *http.Request) {
 		go s.onDrain()
 	}
 
+	stats := s.store.Stats()
 	resp := map[string]any{
-		"status":        "draining",
-		"tasks_running": s.coord.RunningCount(),
-		"tasks_queued":  s.coord.QueueLen(),
+		"status":          "draining",
+		"tasks_running":   s.coord.RunningCount(),
+		"tasks_queued":    s.coord.QueueLen(),
+		"storage_objects": stats.Objects,
+		"message":         "shard migration started in background; poll /api/v1/health to track progress",
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

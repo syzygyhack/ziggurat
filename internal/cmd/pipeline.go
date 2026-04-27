@@ -121,7 +121,7 @@ func runPipelineSubmit(cmd *cobra.Command, args []string) error {
 	name, _ := result["name"].(string)
 	status, _ := result["status"].(string)
 	stages, _ := result["stages"].([]any)
-	fmt.Printf("Pipeline %s (%s) — %s, %d stages\n", shortID(id), name, status, len(stages))
+	fmt.Printf("Pipeline %s (%s) — %s, %d stages\n", id, name, status, len(stages))
 	return nil
 }
 

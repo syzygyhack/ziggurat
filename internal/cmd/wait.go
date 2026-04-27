@@ -79,6 +79,9 @@ func runWaitCmd(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(cmd.ErrOrStderr(), "%s", stderr)
 	}
 
+	id, _ := result["id"].(string)
+	printCompletionSummary(cmd, id, result)
+
 	if status != "completed" {
 		errMsg, _ := result["error"].(string)
 		exitCode := 3
