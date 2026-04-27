@@ -35,7 +35,7 @@ func streamLogs(taskID string) error {
 	}
 	req.Header.Set("Accept", "text/event-stream")
 
-	resp, err := httpClient.Do(req)
+	resp, err := httpClientLong.Do(req)
 	if err != nil {
 		return wrapConnError(err)
 	}

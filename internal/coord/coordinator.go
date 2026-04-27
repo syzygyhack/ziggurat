@@ -88,6 +88,9 @@ func (c *Coordinator) Recover() error {
 			t.Status = model.TaskQueued
 			clearExecState(t)
 			c.queue.Push(t)
+			if err := c.persist.Save(t); err != nil {
+				c.log.Error("failed to persist recovery reset", "id", t.ID, "err", err)
+			}
 		}
 	}
 
@@ -586,6 +589,36 @@ func (c *Coordinator) RequeueByWorker(workerID string) int {
 		count++
 	}
 	return count
+}
+
+// RequeueTask requeues a single task by ID. Only tasks in SCHEDULED state
+// are eligible — RUNNING tasks are left alone to avoid duplicate execution.
+// Used by work stealing to surgically requeue one task at a time.
+func (c *Coordinator) RequeueTask(taskID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	t, ok := c.tasks[taskID]
+	if !ok {
+		return false
+	}
+	if t.Status != model.TaskScheduled {
+		return false
+	}
+
+	c.log.Info("requeuing stolen task", "task", t.ID, "worker", t.Worker)
+	if t.Worker != "" {
+		c.workerLoad.TaskFinished(t.Worker)
+		c.workerLoad.ReleaseResources(t.Worker, t.Resources.Memory, t.Resources.CPUCores, t.Resources.GPUs)
+	}
+	t.Status = model.TaskQueued
+	clearExecState(t)
+	c.queue.Push(t)
+	metrics.TaskQueueDepth.Set(float64(c.queue.Len()))
+	if err := c.persist.Save(t); err != nil {
+		c.log.Error("failed to persist requeue", "id", t.ID, "err", err)
+	}
+	return true
 }
 
 // AcceptDispatch accepts a task dispatched from a remote coordinator.

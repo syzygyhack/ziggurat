@@ -25,11 +25,6 @@ func (s *Server) taskLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.logBroadcaster == nil {
-		writeError(w, http.StatusNotFound, "log streaming not available")
-		return
-	}
-
 	// Set SSE headers.
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -41,8 +36,9 @@ func (s *Server) taskLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If the task is already in a terminal state, send persisted output
-	// so callers don't hang forever on a completed/failed task.
+	// If the task is already in a terminal state, send persisted output.
+	// This works even without a broadcaster — completed task output is
+	// always available from the coordinator's stored stdout/stderr.
 	if isTerminalStatus(task.Status.String()) {
 		sendPersistedLogs(w, flusher, task.Stdout, task.Stderr)
 		fmt.Fprintf(w, "event: done\ndata: {\"status\":%q}\n\n", task.Status.String())
@@ -50,9 +46,27 @@ func (s *Server) taskLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Live streaming requires a broadcaster.
+	if s.logBroadcaster == nil {
+		fmt.Fprintf(w, "event: done\ndata: {\"error\":\"log streaming not available\"}\n\n")
+		flusher.Flush()
+		return
+	}
+
 	// Subscribe to live log events.
 	ch, unsub := s.logBroadcaster.Subscribe(task.ID, 64)
 	defer unsub()
+
+	// Re-check terminal status after subscribing to close the TOCTOU window.
+	// If the task completed between the Get() above and Subscribe(), the
+	// broadcaster's Close() already ran, so our channel will never be closed.
+	// Detect this by re-fetching the task and falling back to persisted output.
+	if t2, err := s.coord.Get(id); err == nil && isTerminalStatus(t2.Status.String()) {
+		sendPersistedLogs(w, flusher, t2.Stdout, t2.Stderr)
+		fmt.Fprintf(w, "event: done\ndata: {\"status\":%q}\n\n", t2.Status.String())
+		flusher.Flush()
+		return
+	}
 
 	flusher.Flush()
 

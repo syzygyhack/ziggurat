@@ -372,17 +372,17 @@ func (d *Dispatcher) stealWork(ctx context.Context) {
 		_ = d.transport.CancelTask(cancelCtx, c.addr, c.taskID)
 		cancel()
 
-		// Requeue locally.
-		n := d.coord.RequeueByWorker(c.worker)
+		// Requeue only this specific task (not all tasks from the worker).
+		// RequeueTask only steals SCHEDULED tasks — RUNNING tasks are left
+		// alone to avoid duplicate execution.
+		if d.coord.RequeueTask(c.taskID) {
+			d.log.Info("work stolen from overloaded worker",
+				"task", c.taskID, "worker", c.worker)
+		}
 
 		d.dispatchedMu.Lock()
 		delete(d.dispatched, c.taskID)
 		d.dispatchedMu.Unlock()
-
-		if n > 0 {
-			d.log.Info("work stolen from overloaded worker",
-				"task", c.taskID, "worker", c.worker, "requeued", n)
-		}
 	}
 }
 

@@ -22,6 +22,7 @@ func RegisterRoutes(r chi.Router, s *Server) {
 
 		// Pipelines
 		r.Post("/pipelines", s.submitPipeline)
+		r.Get("/pipelines", s.listPipelines)
 		r.Get("/pipelines/{id}", s.getPipeline)
 		r.Post("/pipelines/{id}/retry", s.retryPipeline)
 		r.Delete("/pipelines/{id}", s.cancelPipeline)

@@ -203,9 +203,10 @@ func runRun(cmd *cobra.Command, args []string) error {
 	if !jsonOut {
 		fmt.Fprintf(os.Stderr, "Submitted %s, waiting...\n", shortID(id))
 	}
-	resp, err = doPost("/tasks/"+id+"/wait", nil)
+	// Use the long-polling client — task execution can take arbitrarily long.
+	resp, err = httpClientLong.Post(apiURL("/tasks/"+id+"/wait"), "application/json", nil)
 	if err != nil {
-		return fmt.Errorf("wait for task: %w", err)
+		return fmt.Errorf("wait for task: %w", wrapConnError(err))
 	}
 
 	var result map[string]any

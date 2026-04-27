@@ -49,10 +49,22 @@ func apiURL(path string) string {
 	return apiBase() + "/api/v1" + path
 }
 
-// httpClient is the shared client for all CLI requests. Uses a dial timeout
-// so connections fail fast when the server is unreachable, but long-running
-// requests (wait, large transfers) aren't killed prematurely.
+// httpClient is the shared client for CLI requests that should complete
+// within a reasonable time (list, status, submit, cancel, etc.). The 2m
+// timeout prevents hangs when the server is overloaded or deadlocked.
+// Long-polling commands (wait, logs) use httpClientLong instead.
 var httpClient = &http.Client{
+	Timeout: 2 * time.Minute,
+	Transport: &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout: 10 * time.Second,
+		}).DialContext,
+	},
+}
+
+// httpClientLong is used for long-polling endpoints (wait, SSE logs) where
+// the server may hold the connection open for an extended period.
+var httpClientLong = &http.Client{
 	Transport: &http.Transport{
 		DialContext: (&net.Dialer{
 			Timeout: 10 * time.Second,

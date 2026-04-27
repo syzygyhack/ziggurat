@@ -43,7 +43,7 @@ func runWaitCmd(cmd *cobra.Command, args []string) error {
 		req = req.WithContext(ctx)
 	}
 
-	resp, err := httpClient.Do(req)
+	resp, err := httpClientLong.Do(req)
 	if err != nil {
 		if req.Context().Err() != nil && waitTimeout > 0 {
 			return fmt.Errorf("timed out waiting for task after %s", waitTimeout)

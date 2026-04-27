@@ -168,20 +168,87 @@ func TestAPI_TaskLogs_CompletedTask(t *testing.T) {
 func TestAPI_TaskLogs_NoBroadcaster(t *testing.T) {
 	ts := testServer(t)
 
-	// Submit a task so it exists.
+	// Submit a task so it exists (non-terminal, no broadcaster).
 	resp := postJSON(t, ts.URL+"/api/v1/tasks", map[string]any{
 		"command": []string{"echo"},
 	})
 	var task model.Task
 	decodeJSON(t, resp, &task)
 
-	// Without a broadcaster set, should return 404 (no live logs available).
+	// Without a broadcaster set, a non-terminal task gets a 200 SSE response
+	// with an immediate done event containing an error message.
 	resp, err := http.Get(ts.URL + "/api/v1/tasks/" + task.ID + "/logs")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.StatusCode != http.StatusNotFound {
-		t.Fatalf("expected 404 when no broadcaster, got %d", resp.StatusCode)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 SSE response, got %d", resp.StatusCode)
 	}
-	resp.Body.Close()
+
+	// Parse and verify the done event contains an error.
+	scanner := bufio.NewScanner(resp.Body)
+	var gotError bool
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "data: ") {
+			data := strings.TrimPrefix(line, "data: ")
+			var ev map[string]any
+			if json.Unmarshal([]byte(data), &ev) == nil {
+				if _, ok := ev["error"]; ok {
+					gotError = true
+				}
+			}
+		}
+	}
+	if !gotError {
+		t.Fatal("expected done event with error when no broadcaster")
+	}
+}
+
+func TestAPI_TaskLogs_CompletedTask_NoBroadcaster(t *testing.T) {
+	ts, srv := testServerWithRef(t)
+
+	// Submit and complete a task WITHOUT setting a broadcaster.
+	resp := postJSON(t, ts.URL+"/api/v1/tasks", map[string]any{
+		"command": []string{"echo"},
+	})
+	var task model.Task
+	decodeJSON(t, resp, &task)
+	srv.coord.MarkRunning(task.ID, "worker-1")
+	srv.coord.Complete(task.ID, 0, "output\n", "", "", "", 0)
+
+	// Even without a broadcaster, completed tasks should return persisted output.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/api/v1/tasks/"+task.ID+"/logs", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var events []worker.LogEvent
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "data: ") {
+			data := strings.TrimPrefix(line, "data: ")
+			var ev worker.LogEvent
+			if json.Unmarshal([]byte(data), &ev) == nil && ev.Stream != "" {
+				events = append(events, ev)
+			}
+		}
+	}
+
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event (stdout), got %d", len(events))
+	}
+	if events[0].Data != "output\n" {
+		t.Fatalf("expected persisted output, got %q", events[0].Data)
+	}
 }

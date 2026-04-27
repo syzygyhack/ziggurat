@@ -53,6 +53,16 @@ func (s *Server) submitPipeline(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, result)
 }
 
+func (s *Server) listPipelines(w http.ResponseWriter, r *http.Request) {
+	if s.pipelines == nil {
+		writeError(w, http.StatusServiceUnavailable, "pipeline manager not initialized")
+		return
+	}
+
+	pipelines := s.pipelines.ListPipelines()
+	writeJSON(w, http.StatusOK, pipelines)
+}
+
 func (s *Server) getPipeline(w http.ResponseWriter, r *http.Request) {
 	if s.pipelines == nil {
 		writeError(w, http.StatusServiceUnavailable, "pipeline manager not initialized")

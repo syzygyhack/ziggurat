@@ -15,11 +15,21 @@ func newPipelineCmd() *cobra.Command {
 		Use:   "pipeline",
 		Short: "Manage pipelines (task DAGs)",
 	}
+	cmd.AddCommand(newPipelineListCmd())
 	cmd.AddCommand(newPipelineSubmitCmd())
 	cmd.AddCommand(newPipelineStatusCmd())
 	cmd.AddCommand(newPipelineCancelCmd())
 	cmd.AddCommand(newPipelineRetryCmd())
 	return cmd
+}
+
+func newPipelineListCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List all pipelines",
+		Args:  cobra.NoArgs,
+		RunE:  runPipelineList,
+	}
 }
 
 func newPipelineSubmitCmd() *cobra.Command {
@@ -74,6 +84,40 @@ type stageDef struct {
 	Image       string            `yaml:"image,omitempty" json:"image,omitempty"`
 	DependsOn   []string          `yaml:"depends_on,omitempty" json:"depends_on,omitempty"`
 	Config      json.RawMessage   `yaml:"config,omitempty" json:"config,omitempty"`
+}
+
+func runPipelineList(cmd *cobra.Command, args []string) error {
+	resp, err := doGet("/pipelines")
+	if err != nil {
+		return err
+	}
+
+	var pipelines []map[string]any
+	if err := readJSON(resp, &pipelines); err != nil {
+		return err
+	}
+
+	if jsonOut {
+		printJSON(pipelines)
+		return nil
+	}
+
+	if len(pipelines) == 0 {
+		fmt.Println("No pipelines.")
+		return nil
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tNAME\tSTATUS\tSTAGES")
+	for _, p := range pipelines {
+		id, _ := p["id"].(string)
+		name, _ := p["name"].(string)
+		status, _ := p["status"].(string)
+		stages, _ := p["stages"].([]any)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%d\n", shortID(id), name, status, len(stages))
+	}
+	w.Flush()
+	return nil
 }
 
 func runPipelineSubmit(cmd *cobra.Command, args []string) error {
@@ -185,7 +229,8 @@ func runPipelineCancel(cmd *cobra.Command, args []string) error {
 		printJSON(result)
 		return nil
 	}
-	fmt.Printf("Pipeline %s cancelled.\n", shortID(args[0]))
+	id, _ := result["id"].(string)
+	fmt.Printf("Pipeline %s cancelled.\n", shortID(id))
 	return nil
 }
 
@@ -204,7 +249,8 @@ func runPipelineRetry(cmd *cobra.Command, args []string) error {
 		printJSON(result)
 		return nil
 	}
-	fmt.Printf("Pipeline %s retrying from failed stage.\n", shortID(args[0]))
+	id, _ := result["id"].(string)
+	fmt.Printf("Pipeline %s retrying from failed stage.\n", shortID(id))
 	return nil
 }
 
