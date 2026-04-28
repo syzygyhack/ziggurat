@@ -228,10 +228,11 @@ Gossip discovery, replication, distributed scheduling, gRPC transport, failure d
 Streaming I/O, storage repair loop, dead letter queue, batch submission, Prometheus metrics, pipelines, cross-node dispatch with output replication.
 
 ### Phase 1: Production -- Partial
-Remaining: shard rebalancing, drain with migration, container execution (OCI), mTLS + join tokens, resource-aware scheduling, work stealing, mDNS auto-discovery, remote cancel propagation.
+Implemented: shard rebalancing on join, drain with shard migration, resource-aware scheduling (memory/CPU/GPU admission), work stealing from overloaded workers, mDNS auto-discovery (`_ziggurat._tcp.local`), remote cancel propagation via gRPC, schema versioning for BoltDB, integration test harness, task log streaming (SSE).
+Remaining: container execution (OCI), mTLS + join tokens.
 
 ### Phase 2: Advanced -- Planned
-Coordinator failover (Raft), speculative execution, cross-cluster federation, Python client, encryption at rest, cgroup resource limits, live task streaming.
+Coordinator failover (Raft), speculative execution, cross-cluster federation, Python client, encryption at rest, cgroup resource limits.
 
 ## Building
 

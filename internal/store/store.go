@@ -168,6 +168,13 @@ func (s *Store) Put(ctx context.Context, nsKey string, r io.Reader) (string, err
 
 // createErasureShards reads a blob back from disk, encodes it, and writes shards.
 // Updates the object metadata with ErasureParams.
+//
+// NOTE: The Reed-Solomon encoder requires the entire blob in memory. For very
+// large objects (e.g. multi-GB datasets), this allocates ~2x the blob size
+// (original + encoded shards). PUT and GET paths stream data, but EC encoding
+// is inherently non-streaming. If OOM is a concern, either increase node RAM,
+// raise the tier_thresholds.large config to keep large objects in replicated
+// mode, or disable erasure coding.
 func (s *Store) createErasureShards(hashHex string, size int64) error {
 	rc, err := ReadBlob(s.dir, hashHex)
 	if err != nil {

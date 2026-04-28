@@ -487,6 +487,11 @@ func (n *Node) Shutdown(ctx context.Context) error {
 		n.replicator.WaitForRepairs()
 	}
 
+	// Wait for in-flight pipeline onComplete callbacks that fire asynchronously
+	// after task completion. These may write to BoltDB (pipeline persistence),
+	// so they must finish before we close the databases.
+	n.coord.WaitForCallbacks()
+
 	// Safe to close databases now that all goroutines have exited.
 	n.tasksDB.Close()
 	n.store.Close()

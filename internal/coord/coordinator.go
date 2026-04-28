@@ -44,6 +44,10 @@ type Coordinator struct {
 	// Optional callback fired when a task reaches a terminal state.
 	onComplete func(ctx context.Context, taskID string, status model.TaskStatus)
 
+	// callbackWg tracks in-flight onComplete goroutines so shutdown can
+	// wait for them to finish before closing databases.
+	callbackWg sync.WaitGroup
+
 	// Per-worker load tracking for scheduling decisions and work stealing.
 	workerLoad *WorkerLoad
 }
@@ -426,8 +430,13 @@ func (c *Coordinator) Complete(id string, exitCode int, stdout, stderr, errMsg, 
 	metrics.TaskQueueDepth.Set(float64(c.queue.Len()))
 
 	// Fire pipeline callback outside the lock to avoid deadlock.
+	// Tracked by callbackWg so shutdown can wait for completion.
 	if terminal && c.onComplete != nil {
-		go c.onComplete(context.Background(), id, finalStatus)
+		c.callbackWg.Add(1)
+		go func() {
+			defer c.callbackWg.Done()
+			c.onComplete(context.Background(), id, finalStatus)
+		}()
 	}
 
 	return nil
@@ -498,7 +507,11 @@ func (c *Coordinator) CompleteRemote(id string, exitCode int, stdout, stderr, er
 	metrics.TaskQueueDepth.Set(float64(c.queue.Len()))
 
 	if c.onComplete != nil {
-		go c.onComplete(context.Background(), id, finalStatus)
+		c.callbackWg.Add(1)
+		go func() {
+			defer c.callbackWg.Done()
+			c.onComplete(context.Background(), id, finalStatus)
+		}()
 	}
 
 	return nil
@@ -685,6 +698,13 @@ func (c *Coordinator) MarkDispatched(id, workerID string) bool {
 		c.log.Error("failed to persist dispatch state", "id", id, "err", err)
 	}
 	return true
+}
+
+// WaitForCallbacks blocks until all in-flight onComplete callback goroutines
+// finish. Call this during shutdown before closing databases to prevent
+// pipeline advancement from racing with database closure.
+func (c *Coordinator) WaitForCallbacks() {
+	c.callbackWg.Wait()
 }
 
 // WorkerLoad returns the load tracker for scheduling and observability.

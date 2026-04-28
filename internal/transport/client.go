@@ -189,6 +189,9 @@ func (c *Client) PullECShard(ctx context.Context, addr string, hash string, shar
 		if err != nil {
 			return nil, fmt.Errorf("recv EC shard from %s: %w", addr, err)
 		}
+		if int64(buf.Len())+int64(len(msg.Data)) > maxECShardSize {
+			return nil, fmt.Errorf("EC shard from %s exceeds size limit (%d bytes)", addr, maxECShardSize)
+		}
 		buf.Write(msg.Data)
 	}
 	return buf.Bytes(), nil
