@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sync"
 	"strings"
 	"syscall"
 	"time"
@@ -198,6 +199,9 @@ type zigFile struct {
 	key     string
 	client  *http.Client
 	log     *slog.Logger
+
+	mu     sync.Mutex
+	cached []byte // lazily populated on first Read
 }
 
 var _ = (fs.NodeOpener)((*zigFile)(nil))
@@ -219,13 +223,20 @@ func (f *zigFile) Open(ctx context.Context, flags uint32) (fs.FileHandle, uint32
 }
 
 func (f *zigFile) Read(ctx context.Context, fh fs.FileHandle, dest []byte, off int64) (fuse.ReadResult, syscall.Errno) {
-	data, err := f.fetchContent()
-	if err != nil {
-		f.log.Warn("read failed", "key", f.key, "err", err)
-		return nil, syscall.EIO
+	f.mu.Lock()
+	if f.cached == nil {
+		data, err := f.fetchContent()
+		if err != nil {
+			f.mu.Unlock()
+			f.log.Warn("read failed", "key", f.key, "err", err)
+			return nil, syscall.EIO
+		}
+		f.cached = data
 	}
+	data := f.cached
+	f.mu.Unlock()
 
-	end := off + int64(len(dest))
+	end := off + int64(len(data))
 	if end > int64(len(data)) {
 		end = int64(len(data))
 	}

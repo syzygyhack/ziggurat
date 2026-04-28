@@ -113,22 +113,29 @@ func DiscoverPeers(cfg MDNSDiscoverConfig, log *slog.Logger) ([]DiscoveredPeer, 
 	var mu sync.Mutex
 	var peers []DiscoveredPeer
 
+	// WaitGroup ensures the consumer goroutine finishes processing all
+	// entries before we read the peers slice. mdns.Query closes the
+	// entries channel on return, but the consumer may still be mid-iteration.
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		for entry := range entries {
 			// Filter by cluster name in TXT records.
 			if !matchesCluster(entry.InfoFields, clusterName) {
 				continue
 			}
 
-			host := entry.AddrV4.String()
-			if entry.AddrV4 == nil || entry.AddrV4.IsUnspecified() {
-				if entry.AddrV6 != nil && !entry.AddrV6.IsUnspecified() {
-					host = entry.AddrV6.String()
-				} else if entry.Host != "" {
-					host = strings.TrimSuffix(entry.Host, ".")
-				} else {
-					continue
-				}
+			var host string
+			switch {
+			case entry.AddrV4 != nil && !entry.AddrV4.IsUnspecified():
+				host = entry.AddrV4.String()
+			case entry.AddrV6 != nil && !entry.AddrV6.IsUnspecified():
+				host = entry.AddrV6.String()
+			case entry.Host != "":
+				host = strings.TrimSuffix(entry.Host, ".")
+			default:
+				continue
 			}
 
 			// Skip loopback — we don't want to "discover" ourselves in tests
@@ -153,9 +160,16 @@ func DiscoverPeers(cfg MDNSDiscoverConfig, log *slog.Logger) ([]DiscoveredPeer, 
 
 	if err := mdns.Query(params); err != nil {
 		// Some systems don't support multicast; this is non-fatal.
+		close(entries)
+		wg.Wait()
 		log.Debug("mDNS: query failed", "err", err)
 		return nil, nil
 	}
+
+	// Close the entries channel so the consumer goroutine exits its range loop,
+	// then wait for it to finish processing all buffered entries.
+	close(entries)
+	wg.Wait()
 
 	mu.Lock()
 	result := peers

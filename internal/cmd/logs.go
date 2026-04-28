@@ -101,7 +101,6 @@ func streamLogs(taskID string) error {
 				Data   string `json:"data"`
 			}
 			if err := json.Unmarshal([]byte(data), &ev); err != nil {
-				eventType = ""
 				continue
 			}
 
@@ -110,7 +109,6 @@ func streamLogs(taskID string) error {
 			} else {
 				fmt.Print(ev.Data)
 			}
-			eventType = ""
 			continue
 		}
 

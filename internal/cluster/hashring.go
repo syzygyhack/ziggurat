@@ -71,7 +71,7 @@ func (r *HashRing) RemoveNode(nodeID string) {
 	}
 	delete(r.nodeSet, nodeID)
 
-	filtered := r.vnodes[:0]
+	filtered := make([]vnode, 0, len(r.vnodes)-r.replicas)
 	for _, vn := range r.vnodes {
 		if vn.nodeID != nodeID {
 			filtered = append(filtered, vn)

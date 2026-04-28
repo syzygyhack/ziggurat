@@ -61,6 +61,9 @@ func SelectNodes(strategy PlacementStrategy, candidates []NodeInfo, count int) [
 
 	var scored []scoredNode
 	for _, c := range candidates {
+		// FreeBytes == 0 means unknown capacity (not reported); treat as unlimited.
+		// FreeBytes == -1 could be used as an explicit "full" sentinel in the future.
+		// Only skip nodes that have reported capacity AND don't have enough space.
 		if c.FreeBytes > 0 && c.FreeBytes < strategy.ShardSize {
 			continue // not enough space
 		}

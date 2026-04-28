@@ -151,9 +151,9 @@ func (c *Coordinator) Submit(ctx context.Context, task *model.Task) (*model.Task
 	return &cp, nil
 }
 
-// Get returns a shallow copy of a task by ID or unambiguous ID prefix.
-// The copy is safe to read outside the coordinator lock (e.g. for JSON
-// serialization). Prefix matching requires at least 4 characters.
+// Get returns a deep copy of a task by ID or unambiguous ID prefix.
+// The copy is safe to read and modify outside the coordinator lock
+// (e.g. for JSON serialization). Prefix matching requires at least 4 characters.
 func (c *Coordinator) Get(id string) (*model.Task, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -162,12 +162,11 @@ func (c *Coordinator) Get(id string) (*model.Task, error) {
 	if err != nil {
 		return nil, err
 	}
-	cp := *c.tasks[resolved]
-	return &cp, nil
+	return deepCopyTask(c.tasks[resolved]), nil
 }
 
 // List returns all tasks, optionally filtered by status.
-// Returns shallow copies so callers cannot mutate coordinator state.
+// Returns deep copies so callers cannot mutate coordinator state.
 func (c *Coordinator) List(status *model.TaskStatus) []*model.Task {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -175,8 +174,7 @@ func (c *Coordinator) List(status *model.TaskStatus) []*model.Task {
 	var result []*model.Task
 	for _, t := range c.tasks {
 		if status == nil || t.Status == *status {
-			cp := *t
-			result = append(result, &cp)
+			result = append(result, deepCopyTask(t))
 		}
 	}
 	return result
@@ -701,10 +699,22 @@ func (c *Coordinator) MarkDispatched(id, workerID string) bool {
 }
 
 // WaitForCallbacks blocks until all in-flight onComplete callback goroutines
-// finish. Call this during shutdown before closing databases to prevent
-// pipeline advancement from racing with database closure.
-func (c *Coordinator) WaitForCallbacks() {
-	c.callbackWg.Wait()
+// finish or 30 seconds elapse. Call this during shutdown before closing
+// databases to prevent pipeline advancement from racing with database closure.
+// Returns true if all callbacks completed, false if the timeout was reached.
+func (c *Coordinator) WaitForCallbacks() bool {
+	done := make(chan struct{})
+	go func() {
+		c.callbackWg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-time.After(30 * time.Second):
+		c.log.Warn("timed out waiting for in-flight callbacks (30s)")
+		return false
+	}
 }
 
 // WorkerLoad returns the load tracker for scheduling and observability.
@@ -737,6 +747,49 @@ func (c *Coordinator) resolveID(id string) (string, error) {
 
 func isTerminal(s model.TaskStatus) bool {
 	return s == model.TaskCompleted || s == model.TaskFailed || s == model.TaskCancelled || s == model.TaskDeadLetter
+}
+
+// deepCopyTask returns a fully independent copy of a task, including all
+// mutable slice and map fields. The shallow struct copy shares the backing
+// arrays of Command, Artifacts, Requires, Constraints, Env, InputRefs, and
+// Params — a caller that appends or mutates those would corrupt coordinator state.
+func deepCopyTask(t *model.Task) *model.Task {
+	cp := *t
+	if t.Command != nil {
+		cp.Command = make([]string, len(t.Command))
+		copy(cp.Command, t.Command)
+	}
+	if t.Env != nil {
+		cp.Env = make(map[string]string, len(t.Env))
+		for k, v := range t.Env {
+			cp.Env[k] = v
+		}
+	}
+	if t.InputRefs != nil {
+		cp.InputRefs = make(map[string]string, len(t.InputRefs))
+		for k, v := range t.InputRefs {
+			cp.InputRefs[k] = v
+		}
+	}
+	if t.Artifacts != nil {
+		cp.Artifacts = make([]string, len(t.Artifacts))
+		copy(cp.Artifacts, t.Artifacts)
+	}
+	if t.Params != nil {
+		cp.Params = make(map[string]string, len(t.Params))
+		for k, v := range t.Params {
+			cp.Params[k] = v
+		}
+	}
+	if t.Requires != nil {
+		cp.Requires = make([]string, len(t.Requires))
+		copy(cp.Requires, t.Requires)
+	}
+	if t.Constraints != nil {
+		cp.Constraints = make([]string, len(t.Constraints))
+		copy(cp.Constraints, t.Constraints)
+	}
+	return &cp
 }
 
 // clearExecState resets execution-related fields before re-enqueuing a task.
