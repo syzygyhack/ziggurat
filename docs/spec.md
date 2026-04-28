@@ -818,25 +818,17 @@ When a stage fails (retries exhausted):
 
 ### Work Stealing
 
-**Status: foundation only.** The coordinator tracks per-worker load via `WorkerLoad` and can identify overloaded workers (`OverloadedWorkers()`), but active work stealing (reassigning queued tasks between workers) is not yet implemented. The current cross-node dispatch loop handles initial placement; rebalancing after placement is planned.
+The coordinator tracks per-worker load via `WorkerLoad` and identifies overloaded workers (`OverloadedWorkers()` — queue depth > 2× median). The dispatch loop periodically calls `stealWork()`, which reassigns queued (not running) tasks from overloaded workers back to the global queue for redistribution to idle workers.
 
-Design (when implemented):
-
-1. Coordinator identifies overloaded worker (queue depth > 2x median)
-2. Coordinator reassigns queued (not running) tasks to idle workers
-3. If task data isn't local to the new worker, a prefetch is triggered
-
-Work stealing will respect data locality -- it won't move a task away from its data unless the load imbalance is severe (configurable threshold).
+Work stealing respects data locality — tasks are only moved when the load imbalance is severe enough to justify remote execution.
 
 ---
 
 ## Discovery and Membership
 
-### LAN Discovery (mDNS) [PLANNED]
+### LAN Discovery (mDNS)
 
-**Not yet implemented.** Current cluster formation requires explicit seed addresses via `--join` or `cluster.seeds` config. mDNS auto-discovery is planned for a future release.
-
-Design (when implemented): on startup, a node announces itself via mDNS service `_ziggurat._tcp.local`. Other nodes discover it automatically.
+On startup, a node announces itself via mDNS service `_ziggurat._tcp.local`. Other nodes discover it automatically.
 
 ```
 Node A starts → announces _ziggurat._tcp.local
@@ -1493,7 +1485,7 @@ All persistent state lives under `node.data_dir` (default `~/.ziggurat`):
 
 **Why BoltDB snapshots, not a WAL**: BoltDB provides crash-safe transactional writes — each `Save()` is an atomic B+ tree update backed by `fdatasync`. This gives the same durability guarantee as a WAL with simpler code and no checkpoint/truncation logic. The tradeoff is write amplification (full task JSON per transition vs. delta), which is acceptable at Phase 0a task volumes. A WAL may be introduced in Phase 0b if write throughput becomes a bottleneck under distributed scheduling.
 
-**Schema versioning** (planned): The metadata DB will include a `schema_version` key. On startup, the node checks the version and runs migrations if needed. Unknown future versions cause the node to refuse to start (preventing corruption from downgrade).
+**Schema versioning**: The metadata DB includes a `schema_version` key (see `dbutil.CheckSchema`). On startup, the node checks the version and runs migrations if needed. Unknown future versions cause the node to refuse to start (preventing corruption from downgrade).
 
 **Object shards** are stored as flat files named by content hash, grouped into directories by the first two hex characters of the hash (e.g., `store/a3/a3f2b1...`). This limits directory entries to ~256 directories × N files, keeping filesystem operations fast.
 
@@ -1561,17 +1553,23 @@ Multi-node mesh. Builds on 0a by adding discovery, gossip, replication, and dist
 
 - [x] Erasure coding (Reed-Solomon) for large objects
 - [x] Storage repair (background re-replication + integrity scanning)
-- [ ] Shard rebalancing on node join/leave
-- [ ] Drain with shard migration
-- [ ] Work stealing (foundation: WorkerLoad tracking + OverloadedWorkers detection)
+- [x] Shard rebalancing on node join/leave
+- [x] Drain with shard migration
+- [x] Work stealing from overloaded workers
 - [x] Pipelines (task DAGs with output forwarding + retry from failed stage)
-- [ ] Container execution (OCI image support via Podman)
 - [x] Prometheus metrics (served at /metrics on main port)
-- [ ] mTLS + join tokens
 - [x] Batch submission
 - [x] Dead letter queue
-- [ ] Resource-aware scheduling (memory/CPU admission)
+- [x] Resource-aware scheduling (memory/CPU/GPU admission)
 - [x] Streaming I/O for large objects (io.Reader/io.Writer, not []byte)
+- [x] mDNS auto-discovery (`_ziggurat._tcp.local`)
+- [x] Remote cancel propagation via gRPC
+- [x] Schema versioning for BoltDB
+- [x] Integration test harness
+- [x] Task log streaming (SSE)
+- [x] Persistent environments (fingerprint-based reuse)
+- [ ] Container execution (OCI image support via Podman)
+- [ ] mTLS + join tokens
 
 ### Phase 2: Advanced
 
@@ -1581,7 +1579,6 @@ Multi-node mesh. Builds on 0a by adding discovery, gossip, replication, and dist
 - [ ] Python client library (pip installable)
 - [ ] Encryption at rest
 - [ ] Resource limits enforcement (cgroups: CPU, memory, disk I/O per task)
-- [ ] Task streaming (live stdout/stderr via SSE/WebSocket)
 
 ---
 

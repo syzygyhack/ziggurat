@@ -42,7 +42,7 @@ ziggurat
  |   wait <id>              Block until task completes
  |   dead-letter            List dead-lettered tasks (retries exhausted)
  |   retry <id>             Re-submit a failed task              [PLANNED]
- |   logs <id>              Stream stdout/stderr (future: SSE)   [PLANNED]
+ |   logs <id>              Stream stdout/stderr (SSE)
  |
  |-- Pipeline Management
  |   pipeline submit <file> Submit a pipeline definition
@@ -417,7 +417,7 @@ The client needs to find the cluster. Resolution order (first wins):
 ```
 
 For multi-node clusters, the `--addr` points at any node (typically the coordinator).
-Future: mDNS auto-discovery as a fallback before the default (not yet implemented).
+Nodes on the same LAN also discover each other automatically via mDNS (`_ziggurat._tcp.local`).
 
 ---
 
@@ -532,7 +532,7 @@ This is out of scope for Ziggurat itself but documents the integration seam.
 | `cancel` | full | full | full |
 | `wait` | full | full | full |
 | `retry` | -- | full | full |
-| `logs` | -- | -- | SSE streaming |
+| `logs` | -- | -- | SSE streaming ✓ |
 | `env *` | -- | full | full |
 | `put/get/ls/rm` | full | + replication | + erasure coding |
 | `pin/unpin` | full | full | full |
@@ -555,5 +555,7 @@ gRPC transport, failure detection + task requeue. `status` is the cluster dashbo
 Phase 1.5 (complete): LAN productivity. Streaming I/O, storage repair loop, dead letter
 queue, batch submission, Prometheus metrics, pipelines, cross-node dispatch.
 
-Phase 1 (partial): full production UX. Remaining: streaming logs, work stealing,
-mDNS auto-discovery, container execution, mTLS.
+Phase 1 (partial): full production UX. Implemented: streaming logs (SSE), work stealing,
+mDNS auto-discovery, resource-aware scheduling, shard rebalancing, drain with shard
+migration, remote cancel propagation, schema versioning, persistent environments.
+Remaining: container execution (OCI), mTLS + join tokens.
