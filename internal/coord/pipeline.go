@@ -139,13 +139,14 @@ func (pm *PipelineManager) SubmitPipeline(ctx context.Context, p *model.Pipeline
 		return nil, fmt.Errorf("persist pipeline: %w", err)
 	}
 
+	// Hold the lock across insert, scheduling, and persist so that an
+	// OnTaskComplete callback (which also holds pm.mu) cannot modify and
+	// persist the pipeline between scheduleReady and our persist call.
 	pm.mu.Lock()
 	pm.pipelines[p.ID] = p
-	pm.mu.Unlock()
-
-	// Schedule root stages (no dependencies).
-	pm.scheduleReady(ctx, p)
+	pm.scheduleReadyLocked(ctx, p)
 	pm.persist(p)
+	pm.mu.Unlock()
 
 	return p, nil
 }
@@ -274,13 +275,6 @@ func (pm *PipelineManager) RetryPipeline(ctx context.Context, id string) (*model
 	cp.Stages = make([]model.Stage, len(p.Stages))
 	copy(cp.Stages, p.Stages)
 	return &cp, nil
-}
-
-// scheduleReady schedules stages that have all dependencies met.
-func (pm *PipelineManager) scheduleReady(ctx context.Context, p *model.Pipeline) {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-	pm.scheduleReadyLocked(ctx, p)
 }
 
 // scheduleReadyLocked schedules ready stages. Caller must hold pm.mu.

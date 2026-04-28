@@ -33,27 +33,15 @@ func (s *Server) underReplicatedCount() int {
 }
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
-	running := 0
-	queued := 0
-	for _, t := range s.coord.List(nil) {
-		switch t.Status.String() {
-		case "running":
-			running++
-		case "queued":
-			queued++
-		}
-	}
-
 	stats := s.store.Stats()
-
 	nodeCount, healthyCount := s.nodeStats()
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":                   s.clusterStatusLabel(),
 		"nodes":                    nodeCount,
 		"nodes_healthy":            healthyCount,
-		"tasks_running":            running,
-		"tasks_queued":             queued,
+		"tasks_running":            s.coord.RunningCount(),
+		"tasks_queued":             s.coord.QueueLen(),
 		"storage_used_bytes":       stats.UsedBytes,
 		"storage_capacity":         stats.Capacity,
 		"storage_objects":          stats.Objects,

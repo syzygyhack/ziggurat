@@ -579,6 +579,8 @@ func (c *Coordinator) RequeueByWorker(workerID string) int {
 			continue
 		}
 		c.log.Info("requeuing task from departed node", "task", t.ID, "worker", workerID)
+		c.workerLoad.TaskFinished(workerID)
+		c.workerLoad.ReleaseResources(workerID, t.Resources.Memory, t.Resources.CPUCores, t.Resources.GPUs)
 		t.Status = model.TaskQueued
 		clearExecState(t)
 		c.queue.Push(t)

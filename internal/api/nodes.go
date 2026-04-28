@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/syzygyhack/ziggurat/internal/model"
 )
 
 // localNodeInfo returns a richer self-description for single-node mode.
@@ -47,10 +48,27 @@ func (s *Server) getNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Support prefix matching: find the first node whose ID starts with id.
-	for _, n := range s.nodes.List() {
-		if n.ID == id || (len(id) >= 4 && len(n.ID) > len(id) && n.ID[:len(id)] == id) {
+	// Support prefix matching with ambiguity detection.
+	nodes := s.nodes.List()
+	for _, n := range nodes {
+		if n.ID == id {
 			writeJSON(w, http.StatusOK, n)
+			return
+		}
+	}
+	if len(id) >= 4 {
+		var match *model.Node
+		for _, n := range nodes {
+			if len(n.ID) > len(id) && n.ID[:len(id)] == id {
+				if match != nil {
+					writeError(w, http.StatusBadRequest, "ambiguous node ID prefix: "+id)
+					return
+				}
+				match = n
+			}
+		}
+		if match != nil {
+			writeJSON(w, http.StatusOK, match)
 			return
 		}
 	}

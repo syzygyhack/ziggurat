@@ -106,14 +106,33 @@ func (gc *GC) sweep() {
 			continue
 		}
 
+		// Re-check eligibility inside the write transaction to close the
+		// TOCTOU window. Between the initial scan and now, PutReplica or
+		// PutECShardReplica could have re-activated the object.
+		deleted := false
 		gc.store.db.Update(func(tx *bbolt.Tx) error {
 			b := tx.Bucket(bucketObjects)
 			if b == nil {
 				return nil
 			}
+			data := b.Get([]byte(hashHex))
+			if data == nil {
+				return nil // already gone
+			}
+			var meta model.ObjectMeta
+			if err := json.Unmarshal(data, &meta); err != nil {
+				return nil
+			}
+			// Object was re-activated since the scan — skip deletion.
+			if meta.RefCount > 0 || meta.Pinned {
+				return nil
+			}
+			deleted = true
 			return b.Delete([]byte(hashHex))
 		})
 
-		gc.log.Info("gc: collected object", "hash", hashHex[:12])
+		if deleted {
+			gc.log.Info("gc: collected object", "hash", hashHex[:12])
+		}
 	}
 }

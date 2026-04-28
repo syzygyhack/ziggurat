@@ -59,12 +59,15 @@ func streamLogs(taskID string) error {
 		if strings.HasPrefix(line, "data: ") {
 			data := strings.TrimPrefix(line, "data: ")
 
-			// Check for done event.
+			// Check for done event (contains "status" or "error" key).
 			var doneCheck map[string]any
 			if err := json.Unmarshal([]byte(data), &doneCheck); err == nil {
 				if _, hasDone := doneCheck["status"]; hasDone {
 					// Terminal done event — task finished.
 					return nil
+				}
+				if errMsg, hasErr := doneCheck["error"]; hasErr {
+					return fmt.Errorf("%v", errMsg)
 				}
 			}
 
