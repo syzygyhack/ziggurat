@@ -205,8 +205,8 @@ func runPipelineStatus(cmd *cobra.Command, args []string) error {
 		if len(tid) > 8 {
 			tid = tid[:8]
 		}
-		if len(serr) > 40 {
-			serr = serr[:40] + "..."
+		if len(serr) > 80 {
+			serr = serr[:80] + "..."
 		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", sid, ss, tid, serr)
 	}

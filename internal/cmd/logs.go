@@ -51,32 +51,57 @@ func streamLogs(taskID string) error {
 		return fmt.Errorf("server returned %d", resp.StatusCode)
 	}
 
-	// Parse SSE stream line by line.
+	// Parse SSE stream line by line. Increase buffer for large persisted
+	// logs: JSON-wrapped 64 KiB stdout/stderr can exceed the default 64 KiB
+	// scanner token limit.
 	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 256*1024), 256*1024)
+
+	// Track the current SSE event type so we can distinguish log vs done events.
+	var eventType string
+
 	for scanner.Scan() {
 		line := scanner.Text()
 
+		// SSE event type line (e.g. "event: done", "event: log").
+		if strings.HasPrefix(line, "event: ") {
+			eventType = strings.TrimPrefix(line, "event: ")
+			continue
+		}
+
+		// SSE data line.
 		if strings.HasPrefix(line, "data: ") {
 			data := strings.TrimPrefix(line, "data: ")
 
-			// Check for done event (contains "status" or "error" key).
-			var doneCheck map[string]any
-			if err := json.Unmarshal([]byte(data), &doneCheck); err == nil {
-				if _, hasDone := doneCheck["status"]; hasDone {
-					// Terminal done event — task finished.
+			if eventType == "done" || eventType == "" {
+				// Parse done payload — may contain status, exit_code, error.
+				var doneCheck map[string]any
+				if err := json.Unmarshal([]byte(data), &doneCheck); err == nil {
+					if errMsg, hasErr := doneCheck["error"]; hasErr {
+						return fmt.Errorf("%v", errMsg)
+					}
+					if status, ok := doneCheck["status"].(string); ok {
+						if status != "completed" {
+							exitCode := 3
+							if ec, ok := doneCheck["exit_code"].(float64); ok && int(ec) > 0 && int(ec) < 126 {
+								exitCode = int(ec)
+							}
+							return &ExitError{Code: exitCode, Msg: fmt.Sprintf("task %s", status)}
+						}
+						return nil
+					}
+					// Empty done payload (e.g. "data: {}") — task completed.
 					return nil
-				}
-				if errMsg, hasErr := doneCheck["error"]; hasErr {
-					return fmt.Errorf("%v", errMsg)
 				}
 			}
 
-			// Parse as log event.
+			// Log event — print stream data.
 			var ev struct {
 				Stream string `json:"stream"`
 				Data   string `json:"data"`
 			}
 			if err := json.Unmarshal([]byte(data), &ev); err != nil {
+				eventType = ""
 				continue
 			}
 
@@ -85,17 +110,13 @@ func streamLogs(taskID string) error {
 			} else {
 				fmt.Print(ev.Data)
 			}
+			eventType = ""
+			continue
 		}
 
-		// "event: done" with empty data means live stream ended.
-		if line == "event: done" {
-			// Read the next data line.
-			if scanner.Scan() {
-				dataLine := scanner.Text()
-				if dataLine == "data: {}" {
-					return nil
-				}
-			}
+		// Empty line resets event type (SSE spec: events are delimited by blank lines).
+		if line == "" {
+			eventType = ""
 		}
 	}
 

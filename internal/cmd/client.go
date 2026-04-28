@@ -195,7 +195,8 @@ func printCompletionSummary(cmd *cobra.Command, id string, result map[string]any
 
 	if outputRef != "" {
 		fmt.Fprintf(w, "Output: %s\n", outputRef)
-		fmt.Fprintf(w, "  retrieve: ziggurat get %s <dest>\n", outputRef)
+		fmt.Fprintf(w, "  retrieve:  ziggurat get %s <dest>\n", outputRef)
+		fmt.Fprintf(w, "  extract:   ziggurat get --extract %s <dir>\n", outputRef)
 	}
 }
 

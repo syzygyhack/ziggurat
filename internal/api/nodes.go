@@ -8,29 +8,38 @@ import (
 	"github.com/syzygyhack/ziggurat/internal/model"
 )
 
-// localNodeInfo returns a richer self-description for single-node mode.
-func (s *Server) localNodeInfo() map[string]any {
+// localNodeInfo returns a model.Node-shaped description for single-node mode.
+// Uses the same schema as cluster mode so CLI consumers get a consistent shape.
+func (s *Server) localNodeInfo() *model.Node {
 	stats := s.store.Stats()
-	role := s.role
-	if role == "" {
-		role = "hybrid"
+	role := model.RoleHybrid
+	switch s.role {
+	case "coordinator":
+		role = model.RoleCoordinator
+	case "worker":
+		role = model.RoleWorker
 	}
-	return map[string]any{
-		"id":             "local",
-		"name":           "local",
-		"role":           role,
-		"status":         s.clusterStatusLabel(),
-		"tasks_running":  s.coord.RunningCount(),
-		"tasks_queued":   s.coord.QueueLen(),
-		"storage_used":   stats.UsedBytes,
-		"storage_objects": stats.Objects,
-		"uptime_seconds": int(time.Since(s.startTime).Seconds()),
+	return &model.Node{
+		ID:       "local",
+		Name:     "local",
+		Role:     role,
+		JoinedAt: s.startTime,
+		LastSeen: time.Now(),
+		Load: model.LoadInfo{
+			TasksRunning: s.coord.RunningCount(),
+			TasksQueued:  s.coord.QueueLen(),
+		},
+		Storage: model.StorageInfo{
+			Used:     stats.UsedBytes,
+			Objects:  stats.Objects,
+			Capacity: stats.Capacity,
+		},
 	}
 }
 
 func (s *Server) listNodes(w http.ResponseWriter, r *http.Request) {
 	if s.nodes == nil {
-		writeJSON(w, http.StatusOK, []map[string]any{s.localNodeInfo()})
+		writeJSON(w, http.StatusOK, []*model.Node{s.localNodeInfo()})
 		return
 	}
 	writeJSON(w, http.StatusOK, s.nodes.List())

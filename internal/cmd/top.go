@@ -241,12 +241,15 @@ func runTop(cmd *cobra.Command, args []string) error {
 	snap := fetchTop()
 
 	if jsonOut {
+		if snap.err != nil {
+			return snap.err
+		}
 		out := map[string]any{
 			"cluster": snap.cluster,
 			"nodes":   snap.nodes,
 		}
 		printJSON(out)
-		return snap.err
+		return nil
 	}
 
 	if topOnce {

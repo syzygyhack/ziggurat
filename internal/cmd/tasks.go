@@ -3,13 +3,18 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
 )
 
-var tasksStatus string
+var (
+	tasksStatus string
+	tasksLimit  int
+	tasksOffset int
+)
 
 func newTasksCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -19,13 +24,25 @@ func newTasksCmd() *cobra.Command {
 		RunE:  runTasks,
 	}
 	cmd.Flags().StringVar(&tasksStatus, "status", "", "filter by status (queued, running, completed, failed, cancelled, dead_letter)")
+	cmd.Flags().IntVar(&tasksLimit, "limit", 0, "maximum number of tasks to return")
+	cmd.Flags().IntVar(&tasksOffset, "offset", 0, "skip this many tasks (newest first)")
 	return cmd
 }
 
 func runTasks(cmd *cobra.Command, args []string) error {
 	path := "/tasks"
+	var params []string
 	if tasksStatus != "" {
-		path += "?status=" + tasksStatus
+		params = append(params, "status="+tasksStatus)
+	}
+	if tasksLimit > 0 {
+		params = append(params, fmt.Sprintf("limit=%d", tasksLimit))
+	}
+	if tasksOffset > 0 {
+		params = append(params, fmt.Sprintf("offset=%d", tasksOffset))
+	}
+	if len(params) > 0 {
+		path += "?" + strings.Join(params, "&")
 	}
 	resp, err := doGet(path)
 	if err != nil {

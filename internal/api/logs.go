@@ -79,8 +79,14 @@ func (s *Server) taskLogs(w http.ResponseWriter, r *http.Request) {
 		select {
 		case ev, ok := <-ch:
 			if !ok {
-				// Stream closed — task finished.
-				fmt.Fprintf(w, "event: done\ndata: {}\n\n")
+				// Stream closed — task finished. Re-fetch task to include
+				// terminal status and exit code so the CLI can propagate
+				// non-zero exit codes instead of silently returning 0.
+				doneData := "{}"
+				if t, err := s.coord.Get(id); err == nil {
+					doneData = fmt.Sprintf("{\"status\":%q,\"exit_code\":%d}", t.Status.String(), t.ExitCode)
+				}
+				fmt.Fprintf(w, "event: done\ndata: %s\n\n", doneData)
 				flusher.Flush()
 				return
 			}
