@@ -378,11 +378,15 @@ func (d *Dispatcher) stealWork(ctx context.Context) {
 		if d.coord.RequeueTask(c.taskID) {
 			d.log.Info("work stolen from overloaded worker",
 				"task", c.taskID, "worker", c.worker)
-		}
 
-		d.dispatchedMu.Lock()
-		delete(d.dispatched, c.taskID)
-		d.dispatchedMu.Unlock()
+			d.dispatchedMu.Lock()
+			delete(d.dispatched, c.taskID)
+			d.dispatchedMu.Unlock()
+		}
+		// If RequeueTask returned false (task moved to RUNNING between
+		// candidate filtering and now), leave the entry in d.dispatched
+		// so collectResults can track it to completion. The remote cancel
+		// was already sent; collectResults will pick up the terminal state.
 	}
 }
 

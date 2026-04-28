@@ -89,26 +89,11 @@ func (gc *GC) sweep() {
 			}
 		}
 
-		// Delete the full blob (may not exist for EC-only objects).
-		// Only treat "not exist" as success — other errors (permissions,
-		// I/O) mean the file is still on disk so we must keep metadata
-		// to avoid orphaning bytes.
-		blobErr := DeleteBlob(gc.store.dir, hashHex)
-		if blobErr != nil && !errors.Is(blobErr, os.ErrNotExist) {
-			gc.log.Warn("gc: blob delete failed, skipping metadata removal", "hash", hashHex[:12], "err", blobErr)
-			continue
-		}
-
-		// Delete erasure-coded shard directory if present.
-		shardErr := DeleteShards(gc.store.dir, hashHex)
-		if shardErr != nil && !errors.Is(shardErr, os.ErrNotExist) {
-			gc.log.Warn("gc: shard delete failed, skipping metadata removal", "hash", hashHex[:12], "err", shardErr)
-			continue
-		}
-
 		// Re-check eligibility inside the write transaction to close the
 		// TOCTOU window. Between the initial scan and now, PutReplica or
-		// PutECShardReplica could have re-activated the object.
+		// PutECShardReplica could have re-activated the object. Metadata
+		// is deleted BEFORE data files so that a re-activation between
+		// scan and now never results in metadata pointing to deleted files.
 		deleted := false
 		gc.store.db.Update(func(tx *bbolt.Tx) error {
 			b := tx.Bucket(bucketObjects)
@@ -131,8 +116,24 @@ func (gc *GC) sweep() {
 			return b.Delete([]byte(hashHex))
 		})
 
-		if deleted {
-			gc.log.Info("gc: collected object", "hash", hashHex[:12])
+		if !deleted {
+			continue
 		}
+
+		// Metadata is gone — now safe to remove data files. If file
+		// deletion fails, we leak bytes on disk but never corrupt
+		// metadata (the reverse order would destroy data that live
+		// metadata still references).
+		blobErr := DeleteBlob(gc.store.dir, hashHex)
+		if blobErr != nil && !errors.Is(blobErr, os.ErrNotExist) {
+			gc.log.Warn("gc: blob delete failed (orphaned bytes)", "hash", hashHex[:12], "err", blobErr)
+		}
+
+		shardErr := DeleteShards(gc.store.dir, hashHex)
+		if shardErr != nil && !errors.Is(shardErr, os.ErrNotExist) {
+			gc.log.Warn("gc: shard delete failed (orphaned bytes)", "hash", hashHex[:12], "err", shardErr)
+		}
+
+		gc.log.Info("gc: collected object", "hash", hashHex[:12])
 	}
 }
