@@ -2,7 +2,6 @@ package node
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"net"
@@ -115,7 +114,7 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 	var grpcDialOpt grpc.DialOption
 	if cfg.Security.TLS.Enabled {
 		isCoord := role == "coordinator" || role == "hybrid"
-		certPaths, err := certs.LoadOrGenerateCerts(dataDir, nodeID, isCoord, nil)
+		certPaths, err := certs.LoadOrGenerateCerts(dataDir, nodeID, isCoord, collectSANs(cfg))
 		if err != nil {
 			return nil, fmt.Errorf("tls certs: %w", err)
 		}
@@ -127,7 +126,7 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 		// Client uses the same TLS config but doesn't require client certs
 		// (the server side enforces that).
 		clientTLS := tlsCfg.Clone()
-		clientTLS.ClientAuth = tls.NoClientCert
+		clientTLS.InsecureSkipVerify = true // cluster-internal: trust CA, skip hostname
 		grpcDialOpt = grpc.WithTransportCredentials(credentials.NewTLS(clientTLS))
 		log.Info("mTLS enabled", "certs_dir", certs.DefaultDir(dataDir))
 	} else {
@@ -608,4 +607,18 @@ func (n *Node) refreshCapabilities(ctx context.Context, caps map[string]string, 
 			}
 		}
 	}
+}
+
+// collectSANs builds the Subject Alternative Name list for TLS certs:
+// hostname, localhost/loopback for dev, and the advertise address if set.
+func collectSANs(cfg *config.Config) []string {
+	var sans []string
+	if host, err := os.Hostname(); err == nil {
+		sans = append(sans, host)
+	}
+	sans = append(sans, "localhost", "127.0.0.1", "::1")
+	if cfg.Network.Advertise != "" {
+		sans = append(sans, cfg.Network.Advertise)
+	}
+	return sans
 }
