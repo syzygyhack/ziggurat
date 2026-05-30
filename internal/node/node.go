@@ -112,9 +112,10 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 	// Generate or load TLS certificates if mTLS is enabled.
 	var grpcCreds grpc.ServerOption
 	var grpcDialOpt grpc.DialOption
+	var certPaths certs.CertPaths
 	if cfg.Security.TLS.Enabled {
 		isCoord := role == "coordinator" || role == "hybrid"
-		certPaths, err := certs.LoadOrGenerateCerts(dataDir, nodeID, isCoord, collectSANs(cfg))
+		certPaths, err = certs.LoadOrGenerateCerts(dataDir, nodeID, isCoord, collectSANs(cfg))
 		if err != nil {
 			return nil, fmt.Errorf("tls certs: %w", err)
 		}
@@ -187,7 +188,7 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 	gc := store.NewGC(s, cfg.Storage.GCGracePeriod, log.With("component", "gc"))
 
 	// Start cluster gossip.
-	clusterCfg := cluster.ConfigFromNode(nodeID, cfg.Node, cfg.Network, cfg.Cluster, caps)
+	clusterCfg := cluster.ConfigFromNode(nodeID, cfg.Node, cfg.Network, cfg.Cluster, caps, cfg.Security.JoinToken)
 	cl, err := cluster.New(clusterCfg, log.With("component", "cluster"))
 	if err != nil {
 		log.Warn("cluster: gossip disabled", "err", err)
@@ -242,10 +243,15 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 	if cl != nil {
 		apiSrv = api.NewClusterWithAuth(c, s, cl.Registry, log.With("component", "api"), maxUpload, cfg.Security.APIToken)
 	} else {
-		apiSrv = api.NewWithOptions(c, s, log.With("component", "api"), maxUpload)
+		apiSrv = api.NewClusterWithAuth(c, s, nil, log.With("component", "api"), maxUpload, cfg.Security.APIToken)
 	}
 	apiSrv.SetRole(role)
 	apiSrv.SetLogBroadcaster(logBroadcaster)
+
+	// Configure worker enrollment endpoint on coordinators.
+	if cfg.Security.TLS.Enabled && (role == "coordinator" || role == "hybrid") {
+		apiSrv.SetEnrollConfig(certPaths.CACert, certPaths.CAKey, cfg.Security.JoinToken)
+	}
 
 	// Initialize gRPC transport server and client.
 	grpcSrv := grpc.NewServer(grpcCreds)

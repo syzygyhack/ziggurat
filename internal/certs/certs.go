@@ -1,15 +1,19 @@
 package certs
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"math/big"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -163,9 +167,100 @@ func LoadTLSConfig(certPath, keyPath, caCertPath string, requireClientCert bool)
 	return cfg, nil
 }
 
+// LoadCA reads and parses a CA certificate and private key from disk.
+// Exported for use by the enrollment endpoint.
+func LoadCA(certPath, keyPath string) (*x509.Certificate, *rsa.PrivateKey, error) {
+	return loadCA(certPath, keyPath)
+}
+
+// ReadCertPEM reads a PEM-encoded certificate from disk.
+func ReadCertPEM(path string) ([]byte, error) {
+	return os.ReadFile(path)
+}
+
+// EnrollWorker connects to the coordinator's enrollment endpoint, submits
+// a CSR with the join token, and saves the signed certificate and CA cert.
+func EnrollWorker(coordAddr, joinToken, nodeID string, sans []string, certPath, keyPath, caCertPath string) error {
+	// Generate a keypair for the worker.
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return fmt.Errorf("generate worker key: %w", err)
+	}
+
+	// Create a CSR.
+	tmpl := &x509.CertificateRequest{
+		Subject: pkix.Name{
+			CommonName:   nodeID,
+			Organization: []string{"Ziggurat Node"},
+		},
+	}
+	for _, san := range sans {
+		if ip := net.ParseIP(san); ip != nil {
+			tmpl.IPAddresses = append(tmpl.IPAddresses, ip)
+		} else {
+			tmpl.DNSNames = append(tmpl.DNSNames, san)
+		}
+	}
+	csrDER, err := x509.CreateCertificateRequest(rand.Reader, tmpl, key)
+	if err != nil {
+		return fmt.Errorf("create CSR: %w", err)
+	}
+	csrPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER})
+
+	// Submit enrollment request to coordinator.
+	reqBody, err := json.Marshal(map[string]interface{}{
+		"node_id":    nodeID,
+		"csr":        string(csrPEM),
+		"join_token": joinToken,
+		"sans":       sans,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal enroll request: %w", err)
+	}
+
+	url := fmt.Sprintf("http://%s/api/v1/cluster/enroll", coordAddr)
+	resp, err := http.Post(url, "application/json", bytes.NewReader(reqBody))
+	if err != nil {
+		return fmt.Errorf("enroll request to %s: %w", coordAddr, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("enrollment failed (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var enrollResp struct {
+		Cert   string `json:"cert"`
+		CACert string `json:"ca_cert"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&enrollResp); err != nil {
+		return fmt.Errorf("decode enroll response: %w", err)
+	}
+
+	// Save the signed cert, key, and CA cert.
+	if err := os.WriteFile(certPath, []byte(enrollResp.Cert), 0o644); err != nil {
+		return fmt.Errorf("write cert: %w", err)
+	}
+	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return fmt.Errorf("marshal key: %w", err)
+	}
+	if err := os.WriteFile(keyPath, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}), 0o600); err != nil {
+		return fmt.Errorf("write key: %w", err)
+	}
+	if err := os.WriteFile(caCertPath, []byte(enrollResp.CACert), 0o644); err != nil {
+		return fmt.Errorf("write CA cert: %w", err)
+	}
+
+	return nil
+}
+
 // LoadOrGenerateCerts ensures TLS certificates exist for this node.
-// If the certs don't exist, it generates them. The coordinator generates
-// the CA; workers get certs signed by the coordinator's CA.
+// The coordinator generates a CA and signs its own node cert. Workers
+// generate a self-signed cert if the CA is not available locally; they
+// must enroll with the coordinator (via EnrollWorker) to get a CA-signed
+// cert for full mTLS authentication.
 func LoadOrGenerateCerts(dataDir, nodeID string, isCoordinator bool, sans []string) (CertPaths, error) {
 	dir := DefaultDir(dataDir)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -180,18 +275,78 @@ func LoadOrGenerateCerts(dataDir, nodeID string, isCoordinator bool, sans []stri
 	}
 
 	if isCoordinator {
-		// Coordinator generates its own CA.
 		if err := GenerateCA(paths.CACert, paths.CAKey); err != nil {
 			return CertPaths{}, fmt.Errorf("generate CA: %w", err)
 		}
+		if err := GenerateNodeCert(paths.CACert, paths.CAKey, paths.Cert, paths.Key, nodeID, sans); err != nil {
+			return CertPaths{}, fmt.Errorf("generate node cert: %w", err)
+		}
+		return paths, nil
 	}
 
-	// Generate node cert (signed by CA if coordinator, or with existing CA).
-	if err := GenerateNodeCert(paths.CACert, paths.CAKey, paths.Cert, paths.Key, nodeID, sans); err != nil {
-		return CertPaths{}, fmt.Errorf("generate node cert: %w", err)
+	// Worker: use CA-signed cert if CA is available, otherwise self-sign.
+	if fileExists(paths.CACert) && fileExists(paths.CAKey) {
+		if err := GenerateNodeCert(paths.CACert, paths.CAKey, paths.Cert, paths.Key, nodeID, sans); err != nil {
+			return CertPaths{}, fmt.Errorf("generate node cert: %w", err)
+		}
+		return paths, nil
 	}
 
+	// No CA available on this worker — generate a self-signed cert.
+	// Encryption works, but full mTLS auth requires enrollment with the
+	// coordinator to get a CA-signed cert.
+	if err := generateSelfSigned(paths.Cert, paths.Key, nodeID, sans); err != nil {
+		return CertPaths{}, fmt.Errorf("generate self-signed cert: %w", err)
+	}
 	return paths, nil
+}
+
+// generateSelfSigned creates a self-signed certificate and key for a
+// worker that doesn't yet have access to the cluster CA.
+func generateSelfSigned(certPath, keyPath, nodeID string, sans []string) error {
+	if fileExists(certPath) && fileExists(keyPath) {
+		return nil
+	}
+
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return fmt.Errorf("generate key: %w", err)
+	}
+
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return fmt.Errorf("generate serial: %w", err)
+	}
+
+	tmpl := &x509.Certificate{
+		SerialNumber: serial,
+		Subject: pkix.Name{
+			CommonName:   nodeID,
+			Organization: []string{"Ziggurat Node (self-signed)"},
+		},
+		NotBefore: time.Now(),
+		NotAfter:  time.Now().Add(365 * 24 * time.Hour), // 1 year
+		KeyUsage:  x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage: []x509.ExtKeyUsage{
+			x509.ExtKeyUsageServerAuth,
+			x509.ExtKeyUsageClientAuth,
+		},
+	}
+
+	for _, san := range sans {
+		if ip := net.ParseIP(san); ip != nil {
+			tmpl.IPAddresses = append(tmpl.IPAddresses, ip)
+		} else {
+			tmpl.DNSNames = append(tmpl.DNSNames, san)
+		}
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		return fmt.Errorf("create self-signed cert: %w", err)
+	}
+
+	return writeCertAndKey(certPath, keyPath, certDER, key)
 }
 
 // loadCA reads and parses a CA certificate and private key.

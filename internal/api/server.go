@@ -39,6 +39,9 @@ type Server struct {
 	role             string     // "hybrid", "coordinator", "worker"
 	logBroadcaster   *worker.LogBroadcaster
 	rateLimiter      *RateLimiter
+	caCertPath       string // for worker enrollment (coordinator only)
+	caKeyPath        string // for worker enrollment (coordinator only)
+	joinToken        string // for worker enrollment validation
 }
 
 // New creates an API server (single-node mode).

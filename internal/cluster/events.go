@@ -1,24 +1,56 @@
 package cluster
 
 import (
+	"fmt"
+
 	"github.com/hashicorp/memberlist"
 )
 
-// eventDelegate implements memberlist.EventDelegate, forwarding join/leave
-// events to the node registry. It also enforces cluster name matching:
-// nodes with a mismatched cluster name are rejected (not added to the
-// registry, effectively ignoring them).
+// eventDelegate implements memberlist.EventDelegate and AliveDelegate.
+// It enforces cluster name and join token validation: nodes with a
+// mismatched cluster name or invalid join token are rejected at the
+// gossip level (AliveDelegate returns an error, causing memberlist to
+// immediately suspect the node) and are never added to the registry.
 type eventDelegate struct {
 	registry    *Registry
 	clusterName string
+	joinToken   string // local join token for HMAC validation
+}
+
+func (e *eventDelegate) NotifyAlive(n *memberlist.Node) error {
+	meta, err := decodeMeta(n.Meta)
+	if err != nil {
+		// Can't decode metadata — refuse the node.
+		return fmt.Errorf("undecodable metadata from %s", n.Name)
+	}
+
+	// Validate cluster name.
+	if meta.ClusterName != "" && meta.ClusterName != e.clusterName {
+		return fmt.Errorf("cluster name mismatch: %s (local: %s)", meta.ClusterName, e.clusterName)
+	}
+
+	// Validate join token HMAC.
+	if !validateJoinHMAC(n.Name, meta.TokenHMAC, e.joinToken) {
+		return fmt.Errorf("join token mismatch for %s", n.Name)
+	}
+
+	return nil
 }
 
 func (e *eventDelegate) NotifyJoin(n *memberlist.Node) {
-	// Validate cluster name — nodes from different clusters must not join.
-	if meta, err := decodeMeta(n.Meta); err == nil {
-		if meta.ClusterName != "" && meta.ClusterName != e.clusterName {
-			return // silently reject foreign-cluster nodes
-		}
+	// Only add to registry if metadata is valid and cluster/token match.
+	// NotifyAlive already handles rejection at the gossip level, but this
+	// is defense-in-depth for nodes that slip past (e.g., during initial
+	// cluster formation before AliveDelegate is fully effective).
+	meta, err := decodeMeta(n.Meta)
+	if err != nil {
+		return
+	}
+	if meta.ClusterName != "" && meta.ClusterName != e.clusterName {
+		return
+	}
+	if !validateJoinHMAC(n.Name, meta.TokenHMAC, e.joinToken) {
+		return
 	}
 	e.registry.Add(n)
 }

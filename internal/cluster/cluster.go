@@ -26,6 +26,7 @@ type Config struct {
 	Role          string // "hybrid", "coordinator", "worker"
 	Discovery     string // "auto", "mdns", "seeds", "static" — controls peer discovery
 	ClusterName   string // logical cluster name for mDNS filtering
+	JoinToken     string // shared secret for cluster join (empty = open)
 }
 
 // Cluster manages gossip-based membership and the node registry.
@@ -56,6 +57,7 @@ func New(cfg Config, log *slog.Logger) (*Cluster, error) {
 		Caps:        cfg.Caps,
 		Role:        cfg.Role,
 		ClusterName: clusterName,
+		TokenHMAC:   computeJoinHMAC(cfg.NodeID, cfg.JoinToken),
 	}
 
 	del, err := newDelegate(meta)
@@ -72,7 +74,15 @@ func New(cfg Config, log *slog.Logger) (*Cluster, error) {
 		mlCfg.AdvertiseAddr = cfg.AdvertiseAddr
 	}
 	mlCfg.Delegate = del
-	mlCfg.Events = &eventDelegate{registry: registry, clusterName: clusterName}
+	evDel := &eventDelegate{
+		registry:    registry,
+		clusterName: clusterName,
+		joinToken:   cfg.JoinToken,
+	}
+	mlCfg.Events = evDel
+	// AliveDelegate rejects nodes with mismatched join tokens or cluster
+	// names at the gossip level, not just the registry level.
+	mlCfg.Alive = evDel
 
 	// Suppress memberlist's built-in logging — we route through slog.
 	mlCfg.LogOutput = &slogWriter{log: log.With("component", "memberlist")}
@@ -196,7 +206,7 @@ func (c *Cluster) UpdateMeta(caps map[string]string, tags []string) {
 }
 
 // ConfigFromNode builds a cluster Config from the node's existing configuration.
-func ConfigFromNode(nodeID string, nodeCfg config.NodeConfig, netCfg config.NetworkConfig, clusterCfg config.ClusterConfig, caps map[string]string) Config {
+func ConfigFromNode(nodeID string, nodeCfg config.NodeConfig, netCfg config.NetworkConfig, clusterCfg config.ClusterConfig, caps map[string]string, joinToken string) Config {
 	bindAddr := netCfg.Bind
 	if bindAddr == "" {
 		bindAddr = "0.0.0.0"
@@ -221,6 +231,7 @@ func ConfigFromNode(nodeID string, nodeCfg config.NodeConfig, netCfg config.Netw
 		Role:          nodeRole(nodeCfg.Role),
 		Discovery:     clusterCfg.Discovery,
 		ClusterName:   clusterCfg.Name,
+		JoinToken:     joinToken,
 	}
 }
 

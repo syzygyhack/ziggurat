@@ -31,7 +31,7 @@ func RegisterRoutes(r chi.Router, s *Server) {
 		r.Put("/store/*", s.putObject)
 		r.Get("/store/*", s.getObject)
 		r.Post("/store/*", s.handleStorePost)
-			r.Delete("/store/*", s.handleStoreDelete)
+		r.Delete("/store/*", s.handleStoreDelete)
 
 		// Cluster
 		r.Get("/health", s.health)
@@ -40,5 +40,6 @@ func RegisterRoutes(r chi.Router, s *Server) {
 		r.Get("/nodes/{id}", s.getNode)
 		r.Post("/drain", s.drain)
 		r.Post("/resume", s.resume)
+		r.Post("/cluster/enroll", s.handleEnroll)
 	})
 }
