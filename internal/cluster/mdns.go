@@ -110,43 +110,17 @@ func DiscoverPeers(cfg MDNSDiscoverConfig, log *slog.Logger) ([]DiscoveredPeer, 
 
 	entries := make(chan *mdns.ServiceEntry, 16)
 
-	var mu sync.Mutex
-	var peers []DiscoveredPeer
-
-	// WaitGroup ensures the consumer goroutine finishes processing all
-	// entries before we read the peers slice. mdns.Query closes the
-	// entries channel on return, but the consumer may still be mid-iteration.
+	// Drain the channel into a slice while Query runs. A goroutine is
+	// needed so that more than 16 entries don't deadlock the library.
+	// We do NOT read ServiceEntry fields here — the mdns library may
+	// concurrently mutate them (it keeps entries in an inprogress map).
+	var received []*mdns.ServiceEntry
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		for entry := range entries {
-			// Filter by cluster name in TXT records.
-			if !matchesCluster(entry.InfoFields, clusterName) {
-				continue
-			}
-
-			var host string
-			switch {
-			case entry.AddrV4 != nil && !entry.AddrV4.IsUnspecified():
-				host = entry.AddrV4.String()
-			case entry.AddrV6 != nil && !entry.AddrV6.IsUnspecified():
-				host = entry.AddrV6.String()
-			case entry.Host != "":
-				host = strings.TrimSuffix(entry.Host, ".")
-			default:
-				continue
-			}
-
-			// Skip loopback — we don't want to "discover" ourselves in tests
-			// unless there's truly no other interface.
-			peer := DiscoveredPeer{Host: host, Port: entry.Port}
-
-			mu.Lock()
-			peers = append(peers, peer)
-			mu.Unlock()
-
-			log.Debug("mDNS: discovered peer", "host", host, "port", entry.Port)
+			received = append(received, entry)
 		}
 	}()
 
@@ -158,28 +132,49 @@ func DiscoverPeers(cfg MDNSDiscoverConfig, log *slog.Logger) ([]DiscoveredPeer, 
 		WantUnicastResponse: false,
 	}
 
-	if err := mdns.Query(params); err != nil {
-		// Some systems don't support multicast; this is non-fatal.
-		close(entries)
-		wg.Wait()
-		log.Debug("mDNS: query failed", "err", err)
-		return nil, nil
-	}
+	queryErr := mdns.Query(params)
 
-	// Close the entries channel so the consumer goroutine exits its range loop,
-	// then wait for it to finish processing all buffered entries.
+	// Close the channel and wait for the drainer goroutine to finish.
+	// After this point, Query has returned so the mdns library's select
+	// loop has exited — no more concurrent writes to ServiceEntry structs.
 	close(entries)
 	wg.Wait()
 
-	mu.Lock()
-	result := peers
-	mu.Unlock()
-
-	if len(result) > 0 {
-		log.Info("mDNS: discovered peers", "count", len(result))
+	if queryErr != nil {
+		// Some systems don't support multicast; this is non-fatal.
+		log.Debug("mDNS: query failed", "err", queryErr)
+		return nil, nil
 	}
 
-	return result, nil
+	// Process entries now that the mdns library is done mutating them.
+	var peers []DiscoveredPeer
+	for _, entry := range received {
+		// Filter by cluster name in TXT records.
+		if !matchesCluster(entry.InfoFields, clusterName) {
+			continue
+		}
+
+		var host string
+		switch {
+		case entry.AddrV4 != nil && !entry.AddrV4.IsUnspecified():
+			host = entry.AddrV4.String()
+		case entry.AddrV6 != nil && !entry.AddrV6.IsUnspecified():
+			host = entry.AddrV6.String()
+		case entry.Host != "":
+			host = strings.TrimSuffix(entry.Host, ".")
+		default:
+			continue
+		}
+
+		peers = append(peers, DiscoveredPeer{Host: host, Port: entry.Port})
+		log.Debug("mDNS: discovered peer", "host", host, "port", entry.Port)
+	}
+
+	if len(peers) > 0 {
+		log.Info("mDNS: discovered peers", "count", len(peers))
+	}
+
+	return peers, nil
 }
 
 // DiscoverAddrs is a convenience wrapper that returns gossip addresses as

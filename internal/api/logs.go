@@ -41,7 +41,7 @@ func (s *Server) taskLogs(w http.ResponseWriter, r *http.Request) {
 	// always available from the coordinator's stored stdout/stderr.
 	if isTerminalStatus(task.Status.String()) {
 		sendPersistedLogs(w, flusher, task.Stdout, task.Stderr)
-		fmt.Fprintf(w, "event: done\ndata: {\"status\":%q}\n\n", task.Status.String())
+		fmt.Fprintf(w, "event: done\ndata: {\"status\":%q,\"exit_code\":%d}\n\n", task.Status.String(), task.ExitCode)
 		flusher.Flush()
 		return
 	}
@@ -63,7 +63,7 @@ func (s *Server) taskLogs(w http.ResponseWriter, r *http.Request) {
 	// Detect this by re-fetching the task and falling back to persisted output.
 	if t2, err := s.coord.Get(id); err == nil && isTerminalStatus(t2.Status.String()) {
 		sendPersistedLogs(w, flusher, t2.Stdout, t2.Stderr)
-		fmt.Fprintf(w, "event: done\ndata: {\"status\":%q}\n\n", t2.Status.String())
+		fmt.Fprintf(w, "event: done\ndata: {\"status\":%q,\"exit_code\":%d}\n\n", t2.Status.String(), t2.ExitCode)
 		flusher.Flush()
 		return
 	}

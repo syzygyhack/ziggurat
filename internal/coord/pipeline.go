@@ -159,11 +159,7 @@ func (pm *PipelineManager) GetPipeline(id string) (*model.Pipeline, error) {
 	if err != nil {
 		return nil, err
 	}
-	p := pm.pipelines[resolved]
-	cp := *p
-	cp.Stages = make([]model.Stage, len(p.Stages))
-	copy(cp.Stages, p.Stages)
-	return &cp, nil
+	return deepCopyPipeline(pm.pipelines[resolved]), nil
 }
 
 // ListPipelines returns all pipelines.
@@ -172,10 +168,7 @@ func (pm *PipelineManager) ListPipelines() []*model.Pipeline {
 	defer pm.mu.RUnlock()
 	var result []*model.Pipeline
 	for _, p := range pm.pipelines {
-		cp := *p
-		cp.Stages = make([]model.Stage, len(p.Stages))
-		copy(cp.Stages, p.Stages)
-		result = append(result, &cp)
+		result = append(result, deepCopyPipeline(p))
 	}
 	return result
 }
@@ -235,10 +228,7 @@ func (pm *PipelineManager) CancelPipeline(id string) (*model.Pipeline, error) {
 	p.Status = model.PipelineCancelled
 	pm.persist(p)
 
-	cp := *p
-	cp.Stages = make([]model.Stage, len(p.Stages))
-	copy(cp.Stages, p.Stages)
-	return &cp, nil
+	return deepCopyPipeline(p), nil
 }
 
 // RetryPipeline retries a failed pipeline from the first failed stage.
@@ -271,10 +261,7 @@ func (pm *PipelineManager) RetryPipeline(ctx context.Context, id string) (*model
 	pm.scheduleReadyLocked(ctx, p)
 	pm.persist(p)
 
-	cp := *p
-	cp.Stages = make([]model.Stage, len(p.Stages))
-	copy(cp.Stages, p.Stages)
-	return &cp, nil
+	return deepCopyPipeline(p), nil
 }
 
 // scheduleReadyLocked schedules ready stages. Caller must hold pm.mu.
@@ -467,6 +454,49 @@ func (pm *PipelineManager) persist(p *model.Pipeline) error {
 	return pm.db.Update(func(tx *bbolt.Tx) error {
 		return tx.Bucket(bucketPipelines).Put([]byte(p.ID), data)
 	})
+}
+
+// deepCopyPipeline returns an independent copy of a pipeline, including
+// all mutable slice and map fields within each stage.
+func deepCopyPipeline(p *model.Pipeline) *model.Pipeline {
+	cp := *p
+	cp.Stages = make([]model.Stage, len(p.Stages))
+	for i, s := range p.Stages {
+		cp.Stages[i] = s
+		if s.Command != nil {
+			cp.Stages[i].Command = make([]string, len(s.Command))
+			copy(cp.Stages[i].Command, s.Command)
+		}
+		if s.Artifacts != nil {
+			cp.Stages[i].Artifacts = make([]string, len(s.Artifacts))
+			copy(cp.Stages[i].Artifacts, s.Artifacts)
+		}
+		if s.InputRefs != nil {
+			cp.Stages[i].InputRefs = make(map[string]string, len(s.InputRefs))
+			for k, v := range s.InputRefs {
+				cp.Stages[i].InputRefs[k] = v
+			}
+		}
+		if s.Params != nil {
+			cp.Stages[i].Params = make(map[string]string, len(s.Params))
+			for k, v := range s.Params {
+				cp.Stages[i].Params[k] = v
+			}
+		}
+		if s.Requires != nil {
+			cp.Stages[i].Requires = make([]string, len(s.Requires))
+			copy(cp.Stages[i].Requires, s.Requires)
+		}
+		if s.Constraints != nil {
+			cp.Stages[i].Constraints = make([]string, len(s.Constraints))
+			copy(cp.Stages[i].Constraints, s.Constraints)
+		}
+		if s.DependsOn != nil {
+			cp.Stages[i].DependsOn = make([]string, len(s.DependsOn))
+			copy(cp.Stages[i].DependsOn, s.DependsOn)
+		}
+	}
+	return &cp
 }
 
 // validateDAG checks for cycles using Kahn's algorithm.

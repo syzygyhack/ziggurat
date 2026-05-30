@@ -2,6 +2,7 @@ package coord
 
 import (
 	"runtime"
+	"sort"
 	"sync"
 
 	"github.com/syzygyhack/ziggurat/internal/scheduler"
@@ -148,14 +149,7 @@ func (wl *WorkerLoad) OverloadedWorkers() []string {
 	for _, r := range wl.running {
 		loads = append(loads, r)
 	}
-	// Simple median: sort and take middle.
-	for i := 0; i < len(loads); i++ {
-		for j := i + 1; j < len(loads); j++ {
-			if loads[j] < loads[i] {
-				loads[i], loads[j] = loads[j], loads[i]
-			}
-		}
-	}
+	sort.Ints(loads)
 	median := loads[len(loads)/2]
 
 	threshold := 2 * median

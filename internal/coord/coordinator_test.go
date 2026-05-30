@@ -115,7 +115,7 @@ func TestCoordinator_CompleteSuccess(t *testing.T) {
 	submitted, _ := c.Submit(context.Background(), task)
 
 	// Dequeue and mark running.
-	dequeued := c.Dequeue(nil, nil)
+	dequeued := c.Dequeue(nil, nil, "")
 	if dequeued == nil {
 		t.Fatal("expected task from dequeue")
 	}
@@ -143,7 +143,7 @@ func TestCoordinator_CompleteFailureRetries(t *testing.T) {
 	submitted, _ := c.Submit(context.Background(), task)
 
 	// First attempt: dequeue, run, fail.
-	c.Dequeue(nil, nil)
+	c.Dequeue(nil, nil, "")
 	c.MarkRunning(submitted.ID, "worker-1")
 	c.Complete(submitted.ID, 1, "", "error", "", "", 0)
 
@@ -154,7 +154,7 @@ func TestCoordinator_CompleteFailureRetries(t *testing.T) {
 	}
 
 	// Second attempt: dequeue, run, fail again.
-	c.Dequeue(nil, nil)
+	c.Dequeue(nil, nil, "")
 	c.MarkRunning(submitted.ID, "worker-1")
 	c.Complete(submitted.ID, 1, "", "error again", "", "", 0)
 
@@ -207,8 +207,8 @@ func TestCoordinator_RecoverReEnqueuesInProgress(t *testing.T) {
 	completed, _ := c1.Submit(context.Background(), &model.Task{Command: []string{"echo", "completed"}})
 
 	// Move running task through dequeue → running.
-	c1.Dequeue(nil, nil) // pops highest-seq first (both same priority), gets queued or running
-	c1.Dequeue(nil, nil)
+	c1.Dequeue(nil, nil, "") // pops highest-seq first (both same priority), gets queued or running
+	c1.Dequeue(nil, nil, "")
 	c1.MarkRunning(running.ID, "worker-1")
 
 	// Complete one task.
@@ -255,12 +255,12 @@ func TestCoordinator_RecoverReEnqueuesInProgress(t *testing.T) {
 	}
 
 	// The re-enqueued tasks should be dequeueable.
-	d1 := c2.Dequeue(nil, nil)
-	d2 := c2.Dequeue(nil, nil)
+	d1 := c2.Dequeue(nil, nil, "")
+	d2 := c2.Dequeue(nil, nil, "")
 	if d1 == nil || d2 == nil {
 		t.Fatal("expected 2 dequeueable tasks after recovery")
 	}
-	d3 := c2.Dequeue(nil, nil)
+	d3 := c2.Dequeue(nil, nil, "")
 	if d3 != nil {
 		t.Fatal("expected no more tasks after dequeueing recovered ones")
 	}
@@ -300,9 +300,9 @@ func TestCoordinator_RequeueByWorker(t *testing.T) {
 	t3, _ := c.Submit(context.Background(), &model.Task{Command: []string{"echo", "3"}})
 
 	// Dequeue and mark all running on different workers.
-	c.Dequeue(nil, nil)
-	c.Dequeue(nil, nil)
-	c.Dequeue(nil, nil)
+	c.Dequeue(nil, nil, "")
+	c.Dequeue(nil, nil, "")
+	c.Dequeue(nil, nil, "")
 	c.MarkRunning(t1.ID, "node-A")
 	c.MarkRunning(t2.ID, "node-B")
 	c.MarkRunning(t3.ID, "node-A")
@@ -334,12 +334,12 @@ func TestCoordinator_RequeueByWorker(t *testing.T) {
 	}
 
 	// The requeued tasks should be dequeueable.
-	d1 := c.Dequeue(nil, nil)
-	d2 := c.Dequeue(nil, nil)
+	d1 := c.Dequeue(nil, nil, "")
+	d2 := c.Dequeue(nil, nil, "")
 	if d1 == nil || d2 == nil {
 		t.Fatal("expected 2 dequeueable tasks after requeue")
 	}
-	d3 := c.Dequeue(nil, nil)
+	d3 := c.Dequeue(nil, nil, "")
 	if d3 != nil {
 		t.Fatal("expected no more tasks (node-B's task is still running)")
 	}
@@ -351,7 +351,7 @@ func TestCoordinator_RequeueByWorker_ScheduledNoWorker_NotRequeued(t *testing.T)
 	// Submit a task and dequeue it (becomes SCHEDULED) but don't call MarkRunning.
 	// This simulates a node failing between Dequeue and MarkRunning.
 	t1, _ := c.Submit(context.Background(), &model.Task{Command: []string{"echo", "orphan"}})
-	dequeued := c.Dequeue(nil, nil)
+	dequeued := c.Dequeue(nil, nil, "")
 	if dequeued == nil {
 		t.Fatal("expected task from dequeue")
 	}
@@ -402,7 +402,7 @@ func TestCoordinator_Recover_RequeuesOrphanedScheduled(t *testing.T) {
 	// between Dequeue and MarkRunning.
 	c1 := New(s, persist, defaults, log)
 	t1, _ := c1.Submit(context.Background(), &model.Task{Command: []string{"echo", "orphan"}})
-	c1.Dequeue(nil, nil)
+	c1.Dequeue(nil, nil, "")
 
 	got, _ := c1.Get(t1.ID)
 	if got.Status != model.TaskScheduled {
@@ -421,7 +421,7 @@ func TestCoordinator_Recover_RequeuesOrphanedScheduled(t *testing.T) {
 		t.Fatalf("expected orphaned scheduled task recovered as queued, got %s", recovered.Status)
 	}
 
-	d := c2.Dequeue(nil, nil)
+	d := c2.Dequeue(nil, nil, "")
 	if d == nil {
 		t.Fatal("expected orphaned task to be dequeueable after recovery")
 	}
@@ -447,7 +447,7 @@ func TestCoordinator_Drain(t *testing.T) {
 		t.Fatal("should be draining after Drain()")
 	}
 
-	got := c.Dequeue(nil, nil)
+	got := c.Dequeue(nil, nil, "")
 	if got != nil {
 		t.Fatal("dequeue should return nil while draining")
 	}
@@ -463,7 +463,7 @@ func TestCoordinator_Drain(t *testing.T) {
 		t.Fatal("should not be draining after Undrain()")
 	}
 
-	got = c.Dequeue(nil, nil)
+	got = c.Dequeue(nil, nil, "")
 	if got == nil {
 		t.Fatal("dequeue should return task after undrain")
 	}

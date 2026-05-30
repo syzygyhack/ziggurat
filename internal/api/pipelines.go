@@ -24,7 +24,7 @@ func (s *Server) submitPipeline(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req submitPipelineRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxControlPlaneBody)).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json: "+err.Error())
 		return
 	}

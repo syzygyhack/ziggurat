@@ -48,6 +48,15 @@ func (m *mockNodeRegistry) List() []*model.Node {
 	return m.nodes
 }
 
+func (m *mockNodeRegistry) Get(id string) (*model.Node, bool) {
+	for _, n := range m.nodes {
+		if n.ID == id {
+			return n, true
+		}
+	}
+	return nil, false
+}
+
 func testDispatcher(t *testing.T) (*Dispatcher, *Coordinator, *mockTransport) {
 	t.Helper()
 	tmpDir := t.TempDir()

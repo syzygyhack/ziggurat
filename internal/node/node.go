@@ -129,9 +129,10 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 
 	// Initialize coordinator and recover persisted tasks.
 	defaults := coord.TaskDefaults{
-		MaxRetries: cfg.Resilience.TaskRetries,
-		Timeout:    cfg.Compute.TaskTimeout,
-		DeadLetter: cfg.Resilience.DeadLetter,
+		MaxRetries:    cfg.Resilience.TaskRetries,
+		Timeout:       cfg.Compute.TaskTimeout,
+		DeadLetter:    cfg.Resilience.DeadLetter,
+		MaxQueueDepth: cfg.Resilience.MaxQueueDepth,
 	}
 	c := coord.New(s, persist, defaults, log.With("component", "coord"))
 	if err := c.Recover(); err != nil {
@@ -193,12 +194,7 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 				return // skip self
 			}
 			if repl != nil {
-				go func() {
-					n := repl.Rebalance(repairCtx, joinedID)
-					if n > 0 {
-						log.Info("rebalanced objects to new node", "node", joinedID, "count", n)
-					}
-				}()
+				repl.TriggerRebalance(repairCtx, joinedID)
 			}
 		})
 	}
@@ -240,12 +236,11 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 		apiSrv.SetUnderReplicated(repl.UnderReplicatedCount)
 
 		// Wire drain callback: migrate local shards to peers before shutdown.
+		// Uses TriggerMigrateAll so the goroutine is tracked by repairWg
+		// and WaitForRepairs blocks until it completes during shutdown.
 		replForDrain := repl
 		apiSrv.SetOnDrain(func() {
-			n := replForDrain.MigrateAll(repairCtx)
-			if n > 0 {
-				log.Info("drain: migrated objects to peers", "count", n)
-			}
+			replForDrain.TriggerMigrateAll(repairCtx)
 		})
 
 		// Wire shard fetcher for cross-node EC reconstruction.
@@ -553,7 +548,16 @@ func (n *Node) refreshMetrics(ctx context.Context, s *store.Store, cl *cluster.C
 
 // refreshCapabilities periodically updates volatile capabilities (disk.avail)
 // and re-broadcasts metadata via cluster gossip so other nodes see current values.
+// Uses a private copy of caps to avoid racing with the worker and dispatcher
+// which read the original map concurrently for admission checks.
 func (n *Node) refreshCapabilities(ctx context.Context, caps map[string]string, cl *cluster.Cluster) {
+	// Create a private copy so mutations don't race with readers of the
+	// original map (worker.Dequeue, dispatcher.buildCandidates).
+	gossipCaps := make(map[string]string, len(caps))
+	for k, v := range caps {
+		gossipCaps[k] = v
+	}
+
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -561,9 +565,9 @@ func (n *Node) refreshCapabilities(ctx context.Context, caps map[string]string, 
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			RefreshDiskAvail(caps, n.cfg.Node.DataDir)
+			RefreshDiskAvail(gossipCaps, n.cfg.Node.DataDir)
 			if cl != nil {
-				cl.UpdateMeta(caps, n.cfg.Node.Tags)
+				cl.UpdateMeta(gossipCaps, n.cfg.Node.Tags)
 			}
 		}
 	}

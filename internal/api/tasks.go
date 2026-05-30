@@ -33,7 +33,7 @@ func (s *Server) submitTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req submitTaskRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxControlPlaneBody)).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json: "+err.Error())
 		return
 	}
@@ -80,7 +80,7 @@ func (s *Server) submitBatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var reqs []submitTaskRequest
-	if err := json.NewDecoder(r.Body).Decode(&reqs); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxControlPlaneBody)).Decode(&reqs); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json: "+err.Error())
 		return
 	}

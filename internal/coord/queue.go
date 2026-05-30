@@ -28,6 +28,23 @@ func NewQueue() *Queue {
 func (q *Queue) Push(t *model.Task) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	q.pushLocked(t)
+}
+
+// TryPush atomically checks that the queue length is below maxLen and
+// pushes the task. Returns false if the queue is already at or above
+// the limit. A maxLen of 0 means unlimited (always succeeds).
+func (q *Queue) TryPush(t *model.Task, maxLen int) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if maxLen > 0 && q.heap.Len() >= maxLen {
+		return false
+	}
+	q.pushLocked(t)
+	return true
+}
+
+func (q *Queue) pushLocked(t *model.Task) {
 	q.seq++
 	entry := &taskEntry{task: t, seq: q.seq}
 	entry.constraints = parseConstraints(t.Constraints)
@@ -39,9 +56,14 @@ func (q *Queue) Push(t *model.Task) {
 // given capabilities, and whose resource requests fit within the node's
 // advertised capacity.
 //
+// Optional filter functions are applied after the static checks. If any
+// filter returns false, the entry is skipped. This is used for dynamic
+// resource fitness checks (e.g. ensuring remaining capacity after
+// accounting for already-allocated resources).
+//
 // The scan is O(n) over the heap slice; only the selected entry triggers
 // a heap.Remove (O(log n)).
-func (q *Queue) Pop(tags []string, caps map[string]string) *model.Task {
+func (q *Queue) Pop(tags []string, caps map[string]string, filters ...func(*model.Task) bool) *model.Task {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -62,6 +84,9 @@ func (q *Queue) Pop(tags []string, caps map[string]string) *model.Task {
 		if !matchesResources(entry.task.Resources, caps) {
 			continue
 		}
+		if !applyFilters(entry.task, filters) {
+			continue
+		}
 		if bestIdx < 0 || q.heap.Less(i, bestIdx) {
 			bestIdx = i
 		}
@@ -73,6 +98,17 @@ func (q *Queue) Pop(tags []string, caps map[string]string) *model.Task {
 
 	entry := heap.Remove(&q.heap, bestIdx).(*taskEntry)
 	return entry.task
+}
+
+// applyFilters runs all filter functions against a task. Returns true
+// if all filters pass (or if there are no filters).
+func applyFilters(t *model.Task, filters []func(*model.Task) bool) bool {
+	for _, fn := range filters {
+		if fn != nil && !fn(t) {
+			return false
+		}
+	}
+	return true
 }
 
 // PopForRemote removes and returns the highest-priority task that does

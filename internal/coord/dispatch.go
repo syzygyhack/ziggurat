@@ -16,6 +16,7 @@ import (
 // NodeRegistry provides cluster node information for dispatch decisions.
 type NodeRegistry interface {
 	List() []*model.Node
+	Get(id string) (*model.Node, bool)
 }
 
 // DispatchResult holds the outcome of a task executed on a remote node.
@@ -155,8 +156,22 @@ func (d *Dispatcher) dispatchBatch(ctx context.Context) {
 			return
 		}
 
+		// Register a cancel function BEFORE the dispatch RPC so that a
+		// concurrent Cancel() can always propagate to the remote worker.
+		// If DispatchTask fails, we unregister the cancel function.
+		remoteAddr := node.GRPCAddress
+		taskID := task.ID
+		d.coord.RegisterCancel(taskID, func() {
+			cancelCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := d.transport.CancelTask(cancelCtx, remoteAddr, taskID); err != nil {
+				d.log.Warn("remote cancel failed", "task", taskID, "addr", remoteAddr, "err", err)
+			}
+		})
+
 		_, err := d.transport.DispatchTask(ctx, node.GRPCAddress, task)
 		if err != nil {
+			d.coord.UnregisterCancel(taskID)
 			d.log.Warn("dispatch failed, re-queuing locally",
 				"task", task.ID, "target", target.NodeID, "err", err)
 			d.coord.queue.Push(task)
@@ -175,18 +190,6 @@ func (d *Dispatcher) dispatchBatch(ctx context.Context) {
 		d.dispatchedMu.Lock()
 		d.dispatched[task.ID] = node.GRPCAddress
 		d.dispatchedMu.Unlock()
-
-		// Register a cancel function so that coordinator.Cancel() can
-		// propagate cancellation to the remote worker via gRPC.
-		remoteAddr := node.GRPCAddress
-		taskID := task.ID
-		d.coord.RegisterCancel(taskID, func() {
-			cancelCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := d.transport.CancelTask(cancelCtx, remoteAddr, taskID); err != nil {
-				d.log.Warn("remote cancel failed", "task", taskID, "addr", remoteAddr, "err", err)
-			}
-		})
 
 		d.log.Info("task dispatched to remote node",
 			"task", task.ID, "target", target.NodeID, "addr", node.GRPCAddress)
@@ -211,6 +214,14 @@ func (d *Dispatcher) collectResults(ctx context.Context) {
 		// rather than polling a potentially dead address.
 		t, err := d.coord.Get(id)
 		if err != nil || isTerminal(t.Status) || t.Status == model.TaskQueued {
+			// If the task was cancelled locally, also cancel on the remote
+			// worker. This closes the race where Cancel() fires before the
+			// dispatch tracking entry exists or while the task is SCHEDULED.
+			if err == nil && t.Status == model.TaskCancelled {
+				cancelCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				_ = d.transport.CancelTask(cancelCtx, addr, id)
+				cancel()
+			}
 			d.dispatchedMu.Lock()
 			delete(d.dispatched, id)
 			d.dispatchedMu.Unlock()
@@ -299,12 +310,11 @@ func (d *Dispatcher) buildCandidates(task *model.Task) []scheduler.Candidate {
 }
 
 func (d *Dispatcher) nodeByID(id string) *model.Node {
-	for _, n := range d.registry.List() {
-		if n.ID == id {
-			return n
-		}
+	n, ok := d.registry.Get(id)
+	if !ok {
+		return nil
 	}
-	return nil
+	return n
 }
 
 // replicateOutput pulls a task's output object from the remote worker to the

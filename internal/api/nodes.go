@@ -88,8 +88,9 @@ func (s *Server) drain(w http.ResponseWriter, r *http.Request) {
 	s.coord.Drain()
 
 	// Trigger shard migration in the background if configured.
+	// onDrain launches its own tracked goroutine internally.
 	if s.onDrain != nil {
-		go s.onDrain()
+		s.onDrain()
 	}
 
 	stats := s.store.Stats()

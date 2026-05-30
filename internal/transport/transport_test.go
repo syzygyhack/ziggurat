@@ -526,7 +526,7 @@ func TestTransport_CancelTask(t *testing.T) {
 	}
 
 	// Dequeue and mark running to simulate a worker picking it up.
-	dequeued := env.coord.Dequeue(nil, nil)
+	dequeued := env.coord.Dequeue(nil, nil, "")
 	if dequeued == nil {
 		t.Fatal("expected to dequeue task")
 	}

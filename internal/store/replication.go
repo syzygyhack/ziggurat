@@ -432,6 +432,31 @@ func (r *Replicator) TriggerRepair(ctx context.Context) {
 	}()
 }
 
+// TriggerRebalance runs a rebalance pass asynchronously for a newly joined
+// node. The goroutine is tracked via repairWg so WaitForRepairs blocks until
+// it completes, preventing races with store/DB close during shutdown.
+func (r *Replicator) TriggerRebalance(ctx context.Context, newNodeID string) {
+	r.repairWg.Add(1)
+	go func() {
+		defer r.repairWg.Done()
+		if n := r.Rebalance(ctx, newNodeID); n > 0 {
+			r.log.Info("rebalanced objects to new node", "node", newNodeID, "count", n)
+		}
+	}()
+}
+
+// TriggerMigrateAll runs MigrateAll asynchronously. The goroutine is tracked
+// via repairWg so WaitForRepairs blocks until it completes.
+func (r *Replicator) TriggerMigrateAll(ctx context.Context) {
+	r.repairWg.Add(1)
+	go func() {
+		defer r.repairWg.Done()
+		if n := r.MigrateAll(ctx); n > 0 {
+			r.log.Info("drain: migrated objects to peers", "count", n)
+		}
+	}()
+}
+
 // WaitForRepairs blocks until all in-flight TriggerRepair goroutines complete.
 // Call this during shutdown to prevent races with store/DB close.
 func (r *Replicator) WaitForRepairs() {
@@ -480,7 +505,7 @@ func (r *Replicator) RemoveNodePlacements(departedID string) {
 			if err := json.Unmarshal(data, &meta); err != nil {
 				continue
 			}
-			filtered := meta.Shards[:0]
+			filtered := make([]model.ShardPlacement, 0, len(meta.Shards))
 			for _, sp := range meta.Shards {
 				if sp.NodeID != departedID {
 					filtered = append(filtered, sp)

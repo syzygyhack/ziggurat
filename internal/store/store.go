@@ -181,9 +181,12 @@ func (s *Store) createErasureShards(hashHex string, size int64) error {
 		return fmt.Errorf("open blob for erasure: %w", err)
 	}
 	data, err := io.ReadAll(rc)
-	rc.Close()
+	closeErr := rc.Close() // Close checks BLAKE3 integrity
 	if err != nil {
 		return fmt.Errorf("read blob for erasure: %w", err)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("integrity check for erasure: %w", closeErr)
 	}
 
 	shards, err := s.erasure.Encode(data)

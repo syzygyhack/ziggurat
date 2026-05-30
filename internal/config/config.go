@@ -86,6 +86,7 @@ type ResilienceConfig struct {
 	SuspicionTimeout  time.Duration `yaml:"suspicion_timeout"`
 	TaskRetries       int           `yaml:"task_retries"`
 	DeadLetter        bool          `yaml:"dead_letter"`
+	MaxQueueDepth     int           `yaml:"max_queue_depth"` // 0 = unlimited
 }
 
 type MetricsConfig struct {

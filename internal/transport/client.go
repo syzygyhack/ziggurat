@@ -11,6 +11,7 @@ import (
 	"github.com/syzygyhack/ziggurat/internal/model"
 	"github.com/syzygyhack/ziggurat/internal/transport/pb"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
@@ -39,12 +40,19 @@ func (c *Client) Close() error {
 }
 
 // conn returns a cached or new connection to the given address.
+// Stale connections (SHUTDOWN state) are evicted and replaced.
 func (c *Client) conn(addr string) (*grpc.ClientConn, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if cc, ok := c.conns[addr]; ok {
-		return cc, nil
+		state := cc.GetState()
+		if state == connectivity.Shutdown {
+			cc.Close()
+			delete(c.conns, addr)
+		} else {
+			return cc, nil
+		}
 	}
 
 	cc, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -53,6 +61,17 @@ func (c *Client) conn(addr string) (*grpc.ClientConn, error) {
 	}
 	c.conns[addr] = cc
 	return cc, nil
+}
+
+// EvictAddr removes and closes the cached connection for the given address.
+// Called when a node departs the cluster so stale connections don't accumulate.
+func (c *Client) EvictAddr(addr string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if cc, ok := c.conns[addr]; ok {
+		cc.Close()
+		delete(c.conns, addr)
+	}
 }
 
 // DispatchTask sends a task to a remote node for execution. Returns the
@@ -154,13 +173,18 @@ func (c *Client) PullShard(ctx context.Context, addr string, hash string) (io.Re
 		return nil, err
 	}
 
+	// Wrap context with cancel so Close() can release the gRPC stream
+	// immediately instead of waiting for the parent context to expire.
+	streamCtx, cancel := context.WithCancel(ctx)
+
 	client := pb.NewZigguratNodeClient(cc)
-	stream, err := client.PullShard(ctx, &pb.PullShardRequest{Hash: hash})
+	stream, err := client.PullShard(streamCtx, &pb.PullShardRequest{Hash: hash})
 	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("pull shard from %s: %w", addr, err)
 	}
 
-	return &streamReader{stream: stream}, nil
+	return &streamReader{stream: stream, cancel: cancel}, nil
 }
 
 // PullECShard downloads a single erasure-coded shard from a remote node.
@@ -273,6 +297,7 @@ func (c *Client) pushData(ctx context.Context, addr string, hdr *pb.PushShardHea
 // streamReader wraps a PullShard gRPC stream as an io.ReadCloser.
 type streamReader struct {
 	stream pb.ZigguratNode_PullShardClient
+	cancel context.CancelFunc
 	buf    []byte
 	pos    int
 }
@@ -296,6 +321,10 @@ func (sr *streamReader) Read(p []byte) (int, error) {
 }
 
 func (sr *streamReader) Close() error {
-	// gRPC streams don't have a Close; they end when Recv returns EOF.
+	// Cancel the stream context to release gRPC resources immediately
+	// instead of waiting for the parent context to expire.
+	if sr.cancel != nil {
+		sr.cancel()
+	}
 	return nil
 }

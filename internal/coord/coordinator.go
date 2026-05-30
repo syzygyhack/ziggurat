@@ -10,15 +10,17 @@ import (
 	"github.com/google/uuid"
 	"github.com/syzygyhack/ziggurat/internal/metrics"
 	"github.com/syzygyhack/ziggurat/internal/model"
+	"github.com/syzygyhack/ziggurat/internal/scheduler"
 	"github.com/syzygyhack/ziggurat/internal/store"
 )
 
 // TaskDefaults holds cluster-wide defaults applied when a task doesn't
 // specify its own values.
 type TaskDefaults struct {
-	MaxRetries int
-	Timeout    time.Duration
-	DeadLetter bool
+	MaxRetries    int
+	Timeout       time.Duration
+	DeadLetter    bool
+	MaxQueueDepth int // 0 = unlimited
 }
 
 // Coordinator manages task lifecycle: submission, scheduling, state tracking.
@@ -50,20 +52,25 @@ type Coordinator struct {
 
 	// Per-worker load tracking for scheduling decisions and work stealing.
 	workerLoad *WorkerLoad
+
+	// ready is signaled (non-blocking) whenever a task enters the queue.
+	// Workers select on this to wake up instead of polling on a fixed interval.
+	ready chan struct{}
 }
 
 // New creates a Coordinator backed by the given store and persistence layer.
 func New(s *store.Store, p *Persist, defaults TaskDefaults, log *slog.Logger) *Coordinator {
 	return &Coordinator{
-		store:    s,
-		persist:  p,
-		queue:    NewQueue(),
-		log:      log,
-		defaults: defaults,
+		store:      s,
+		persist:    p,
+		queue:      NewQueue(),
+		log:        log,
+		defaults:   defaults,
 		tasks:      make(map[string]*model.Task),
 		waiters:    make(map[string][]chan struct{}),
 		cancels:    make(map[string]context.CancelFunc),
 		workerLoad: NewWorkerLoad(),
+		ready:      make(chan struct{}, 1),
 	}
 }
 
@@ -92,6 +99,7 @@ func (c *Coordinator) Recover() error {
 			t.Status = model.TaskQueued
 			clearExecState(t)
 			c.queue.Push(t)
+			c.signalReady()
 			if err := c.persist.Save(t); err != nil {
 				c.log.Error("failed to persist recovery reset", "id", t.ID, "err", err)
 			}
@@ -107,6 +115,7 @@ func (c *Coordinator) Recover() error {
 }
 
 // Submit accepts a new task, resolves its references, and enqueues it.
+// Returns an error if the queue depth limit (MaxQueueDepth) is exceeded.
 func (c *Coordinator) Submit(ctx context.Context, task *model.Task) (*model.Task, error) {
 	task.ID = uuid.New().String()
 	task.Status = model.TaskQueued
@@ -139,11 +148,18 @@ func (c *Coordinator) Submit(ctx context.Context, task *model.Task) (*model.Task
 		return nil, fmt.Errorf("persist task: %w", err)
 	}
 
+	// TryPush atomically checks queue depth and pushes, preventing the
+	// race where two concurrent Submits both pass the length check.
+	if !c.queue.TryPush(task, c.defaults.MaxQueueDepth) {
+		ReleaseRefs(task, c.store)
+		return nil, fmt.Errorf("queue depth limit exceeded (%d)", c.defaults.MaxQueueDepth)
+	}
+
 	c.mu.Lock()
 	c.tasks[task.ID] = task
 	c.mu.Unlock()
 
-	c.queue.Push(task)
+	c.signalReady()
 	metrics.TasksSubmitted.Inc()
 	metrics.TaskQueueDepth.Set(float64(c.queue.Len()))
 	c.log.Info("task submitted", "id", cp.ID, "command", cp.Command)
@@ -282,9 +298,12 @@ func (c *Coordinator) removeWaiter(id string, ch chan struct{}) {
 }
 
 // Dequeue returns the next schedulable task whose requirements are met by tags
-// and whose constraints are satisfied by caps. Returns nil if the queue is
-// empty, no task matches, or the node is draining.
-func (c *Coordinator) Dequeue(tags []string, caps map[string]string) *model.Task {
+// and whose constraints are satisfied by caps. workerID identifies the
+// dequeuing worker so that dynamic resource fitness (remaining capacity after
+// accounting for already-allocated resources) is checked. Pass "" to skip
+// resource fitness checks (e.g. in tests). Returns nil if the queue is empty,
+// no task matches, or the node is draining.
+func (c *Coordinator) Dequeue(tags []string, caps map[string]string, workerID string) *model.Task {
 	c.mu.RLock()
 	if c.draining {
 		c.mu.RUnlock()
@@ -292,7 +311,15 @@ func (c *Coordinator) Dequeue(tags []string, caps map[string]string) *model.Task
 	}
 	c.mu.RUnlock()
 
-	t := c.queue.Pop(tags, caps)
+	var filters []func(*model.Task) bool
+	if workerID != "" {
+		filters = append(filters, func(t *model.Task) bool {
+			cand := scheduler.Candidate{NodeID: workerID, Caps: caps}
+			return scheduler.Fits(t, cand, c.workerLoad)
+		})
+	}
+
+	t := c.queue.Pop(tags, caps, filters...)
 	if t == nil {
 		return nil
 	}
@@ -392,6 +419,7 @@ func (c *Coordinator) Complete(id string, exitCode int, stdout, stderr, errMsg, 
 			t.Status = model.TaskQueued
 			clearExecState(t)
 			c.queue.Push(t)
+			c.signalReady()
 		} else {
 			if c.defaults.DeadLetter {
 				t.Status = model.TaskDeadLetter
@@ -595,6 +623,7 @@ func (c *Coordinator) RequeueByWorker(workerID string) int {
 		t.Status = model.TaskQueued
 		clearExecState(t)
 		c.queue.Push(t)
+		c.signalReady()
 		metrics.TaskQueueDepth.Set(float64(c.queue.Len()))
 		if err := c.persist.Save(t); err != nil {
 			c.log.Error("failed to persist requeue", "id", t.ID, "err", err)
@@ -627,6 +656,7 @@ func (c *Coordinator) RequeueTask(taskID string) bool {
 	t.Status = model.TaskQueued
 	clearExecState(t)
 	c.queue.Push(t)
+	c.signalReady()
 	metrics.TaskQueueDepth.Set(float64(c.queue.Len()))
 	if err := c.persist.Save(t); err != nil {
 		c.log.Error("failed to persist requeue", "id", t.ID, "err", err)
@@ -660,11 +690,17 @@ func (c *Coordinator) AcceptDispatch(ctx context.Context, task *model.Task) erro
 		return fmt.Errorf("persist dispatched task: %w", err)
 	}
 
+	// TryPush atomically checks queue depth and pushes, preventing the
+	// race where two concurrent dispatches both pass the length check.
+	if !c.queue.TryPush(task, c.defaults.MaxQueueDepth) {
+		return fmt.Errorf("queue depth limit exceeded (%d)", c.defaults.MaxQueueDepth)
+	}
+
 	c.mu.Lock()
 	c.tasks[task.ID] = task
 	c.mu.Unlock()
 
-	c.queue.Push(task)
+	c.signalReady()
 	metrics.TasksSubmitted.Inc()
 	metrics.TaskQueueDepth.Set(float64(c.queue.Len()))
 	c.log.Info("dispatched task accepted", "id", task.ID, "command", task.Command)
@@ -720,6 +756,21 @@ func (c *Coordinator) WaitForCallbacks() bool {
 // WorkerLoad returns the load tracker for scheduling and observability.
 func (c *Coordinator) WorkerLoad() *WorkerLoad {
 	return c.workerLoad
+}
+
+// Ready returns a channel that is signaled whenever a task enters the queue.
+// Workers should select on this to wake up instead of polling on a timer.
+func (c *Coordinator) Ready() <-chan struct{} {
+	return c.ready
+}
+
+// signalReady performs a non-blocking send on the ready channel to wake
+// any worker waiting for new tasks.
+func (c *Coordinator) signalReady() {
+	select {
+	case c.ready <- struct{}{}:
+	default:
+	}
 }
 
 // resolveID finds the full task ID from an exact match or unambiguous prefix.
@@ -788,6 +839,18 @@ func deepCopyTask(t *model.Task) *model.Task {
 	if t.Constraints != nil {
 		cp.Constraints = make([]string, len(t.Constraints))
 		copy(cp.Constraints, t.Constraints)
+	}
+	if t.Environment != nil {
+		envCp := *t.Environment
+		if t.Environment.Setup != nil {
+			envCp.Setup = make([]string, len(t.Environment.Setup))
+			copy(envCp.Setup, t.Environment.Setup)
+		}
+		if t.Environment.Fingerprint != nil {
+			envCp.Fingerprint = make([]string, len(t.Environment.Fingerprint))
+			copy(envCp.Fingerprint, t.Environment.Fingerprint)
+		}
+		cp.Environment = &envCp
 	}
 	return &cp
 }

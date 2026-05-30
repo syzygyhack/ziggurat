@@ -49,7 +49,7 @@ func (w *Worker) SetLogBroadcaster(lb *LogBroadcaster) {
 	w.logBroadcaster = lb
 }
 
-// Run starts the worker loop, polling the coordinator for tasks.
+// Run starts the worker loop, waiting for tasks from the coordinator.
 // Respects compute.concurrency: launches up to cfg.Concurrency goroutines.
 func (w *Worker) Run(ctx context.Context) {
 	concurrency := w.cfg.Concurrency
@@ -59,6 +59,7 @@ func (w *Worker) Run(ctx context.Context) {
 
 	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
+	ready := w.coord.Ready()
 
 	for {
 		select {
@@ -68,14 +69,17 @@ func (w *Worker) Run(ctx context.Context) {
 		default:
 		}
 
-		task := w.coord.Dequeue(w.tags, w.caps)
+		task := w.coord.Dequeue(w.tags, w.caps, w.nodeID)
 		if task == nil {
-			// No work available, back off.
+			// No work available — wait for a signal or poll fallback.
 			select {
 			case <-ctx.Done():
 				wg.Wait()
 				return
-			case <-time.After(100 * time.Millisecond):
+			case <-ready:
+				continue
+			case <-time.After(2 * time.Second):
+				// Fallback poll in case a signal was missed.
 				continue
 			}
 		}
