@@ -63,5 +63,9 @@ security:
   # join_token: ""            # Shared secret for cluster join (empty = open cluster)
   # api_token: ""             # Bearer token for HTTP API (empty = no auth)
 
+# log:
+#   format: text                # text | json
+#   level: info                 # debug | info | warn | error
+
 metrics:
   enabled: true
