@@ -78,7 +78,11 @@ func Execute(ctx context.Context, task *model.Task, s *store.Store, cfg config.C
 
 	// 2. Fetch inputs.
 	for name, hashHex := range task.InputRefs {
+		// Reject names that escape the input directory via .. or absolute paths.
 		dest := filepath.Join(inputDir, name)
+		if !strings.HasPrefix(filepath.Clean(dest), inputDir+string(filepath.Separator)) && dest != inputDir {
+			return &ExecResult{ExitCode: -1, Error: fmt.Sprintf("input name escapes workdir: %q", name)}
+		}
 		if err := fetchObject(ctx, s, hashHex, dest); err != nil {
 			return &ExecResult{ExitCode: -1, Error: fmt.Sprintf("fetch input %s: %v", name, err)}
 		}

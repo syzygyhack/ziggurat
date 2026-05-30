@@ -225,6 +225,7 @@ func (d *Dispatcher) collectResults(ctx context.Context) {
 			d.dispatchedMu.Lock()
 			delete(d.dispatched, id)
 			d.dispatchedMu.Unlock()
+			d.coord.UnregisterCancel(id)
 			continue
 		}
 
@@ -256,6 +257,8 @@ func (d *Dispatcher) collectResults(ctx context.Context) {
 		); err != nil {
 			d.log.Error("failed to record remote result", "id", id, "err", err)
 		}
+		// Clean up the cancel function registered during dispatch.
+		d.coord.UnregisterCancel(id)
 
 		d.dispatchedMu.Lock()
 		delete(d.dispatched, id)

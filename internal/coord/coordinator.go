@@ -341,6 +341,13 @@ func (c *Coordinator) Dequeue(tags []string, caps map[string]string, workerID st
 	}
 
 	c.mu.Lock()
+	// Guard against race: Cancel() may have fired between Pop() (which
+	// releases the queue mutex) and this lock. If the task was cancelled,
+	// return nil instead of overwriting Cancelled with Scheduled.
+	if t.Status == model.TaskCancelled || t.Status == model.TaskDeadLetter {
+		c.mu.Unlock()
+		return nil
+	}
 	t.Status = model.TaskScheduled
 	c.mu.Unlock()
 
