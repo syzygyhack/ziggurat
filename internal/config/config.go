@@ -21,6 +21,7 @@ type Config struct {
 	Storage    StorageConfig    `yaml:"storage"`
 	Compute    ComputeConfig    `yaml:"compute"`
 	Resilience ResilienceConfig `yaml:"resilience"`
+	Security   SecurityConfig   `yaml:"security"`
 	Metrics    MetricsConfig    `yaml:"metrics"`
 }
 
@@ -89,6 +90,17 @@ type ResilienceConfig struct {
 	TaskRetries       int           `yaml:"task_retries"`
 	DeadLetter        bool          `yaml:"dead_letter"`
 	MaxQueueDepth     int           `yaml:"max_queue_depth"` // 0 = unlimited
+}
+
+type SecurityConfig struct {
+	TLS       TLSConfig  `yaml:"tls"`
+	JoinToken string     `yaml:"join_token"` // shared secret for cluster join
+	APIToken  string     `yaml:"api_token"`  // bearer token for HTTP API (empty = no auth)
+}
+
+type TLSConfig struct {
+	Enabled bool   `yaml:"enabled"` // enable mTLS for gRPC
+	CertsDir string `yaml:"certs_dir"` // override cert directory (default: data_dir/certs)
 }
 
 type MetricsConfig struct {

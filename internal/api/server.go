@@ -49,15 +49,21 @@ func New(c *coord.Coordinator, s *store.Store, log *slog.Logger) *Server {
 // NewWithOptions creates an API server with configurable upload size limit.
 // maxUploadSize of 0 means no limit. nodes may be nil (single-node mode).
 func NewWithOptions(c *coord.Coordinator, s *store.Store, log *slog.Logger, maxUploadSize int64) *Server {
-	return newServer(c, s, nil, log, maxUploadSize)
+	return newServer(c, s, nil, log, maxUploadSize, "")
 }
 
 // NewCluster creates an API server with cluster node awareness.
 func NewCluster(c *coord.Coordinator, s *store.Store, nodes NodeLister, log *slog.Logger, maxUploadSize int64) *Server {
-	return newServer(c, s, nodes, log, maxUploadSize)
+	return newServer(c, s, nodes, log, maxUploadSize, "")
 }
 
-func newServer(c *coord.Coordinator, s *store.Store, nodes NodeLister, log *slog.Logger, maxUploadSize int64) *Server {
+// NewClusterWithAuth creates a cluster-aware API server with optional
+// bearer token authentication. An empty apiToken disables auth.
+func NewClusterWithAuth(c *coord.Coordinator, s *store.Store, nodes NodeLister, log *slog.Logger, maxUploadSize int64, apiToken string) *Server {
+	return newServer(c, s, nodes, log, maxUploadSize, apiToken)
+}
+
+func newServer(c *coord.Coordinator, s *store.Store, nodes NodeLister, log *slog.Logger, maxUploadSize int64, apiToken string) *Server {
 	srv := &Server{
 		router:        chi.NewRouter(),
 		coord:         c,
@@ -77,6 +83,8 @@ func newServer(c *coord.Coordinator, s *store.Store, nodes NodeLister, log *slog
 	// resolved from trusted proxy headers.
 	srv.rateLimiter = NewRateLimiter(100, 200)
 	srv.router.Use(srv.rateLimiter.Middleware)
+	// API token auth must be registered before routes (chi requirement).
+	srv.router.Use(BearerTokenAuth(apiToken))
 
 	RegisterRoutes(srv.router, srv)
 

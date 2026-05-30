@@ -2,6 +2,7 @@ package node
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"net"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/syzygyhack/ziggurat/internal/api"
+	"github.com/syzygyhack/ziggurat/internal/certs"
 	"github.com/syzygyhack/ziggurat/internal/cluster"
 	"github.com/syzygyhack/ziggurat/internal/config"
 	"github.com/syzygyhack/ziggurat/internal/coord"
@@ -24,6 +26,8 @@ import (
 	"github.com/syzygyhack/ziggurat/internal/worker"
 	"go.etcd.io/bbolt"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 // Node is the top-level lifecycle object that owns all subsystems.
@@ -105,6 +109,31 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 		role = "hybrid"
 	}
 	log.Info("node starting", "id", nodeID, "role", role, "data_dir", dataDir)
+
+	// Generate or load TLS certificates if mTLS is enabled.
+	var grpcCreds grpc.ServerOption
+	var grpcDialOpt grpc.DialOption
+	if cfg.Security.TLS.Enabled {
+		isCoord := role == "coordinator" || role == "hybrid"
+		certPaths, err := certs.LoadOrGenerateCerts(dataDir, nodeID, isCoord, nil)
+		if err != nil {
+			return nil, fmt.Errorf("tls certs: %w", err)
+		}
+		tlsCfg, err := certs.LoadTLSConfig(certPaths.Cert, certPaths.Key, certPaths.CACert, true)
+		if err != nil {
+			return nil, fmt.Errorf("tls config: %w", err)
+		}
+		grpcCreds = grpc.Creds(credentials.NewTLS(tlsCfg))
+		// Client uses the same TLS config but doesn't require client certs
+		// (the server side enforces that).
+		clientTLS := tlsCfg.Clone()
+		clientTLS.ClientAuth = tls.NoClientCert
+		grpcDialOpt = grpc.WithTransportCredentials(credentials.NewTLS(clientTLS))
+		log.Info("mTLS enabled", "certs_dir", certs.DefaultDir(dataDir))
+	} else {
+		grpcCreds = grpc.Creds(insecure.NewCredentials())
+		grpcDialOpt = grpc.WithTransportCredentials(insecure.NewCredentials())
+	}
 
 	// Initialize store.
 	s, err := store.New(cfg.Storage, dataDir, log.With("component", "store"))
@@ -212,7 +241,7 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 	}
 	var apiSrv *api.Server
 	if cl != nil {
-		apiSrv = api.NewCluster(c, s, cl.Registry, log.With("component", "api"), maxUpload)
+		apiSrv = api.NewClusterWithAuth(c, s, cl.Registry, log.With("component", "api"), maxUpload, cfg.Security.APIToken)
 	} else {
 		apiSrv = api.NewWithOptions(c, s, log.With("component", "api"), maxUpload)
 	}
@@ -220,10 +249,10 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 	apiSrv.SetLogBroadcaster(logBroadcaster)
 
 	// Initialize gRPC transport server and client.
-	grpcSrv := grpc.NewServer()
+	grpcSrv := grpc.NewServer(grpcCreds)
 	tSrv := transport.NewServer(c, s, w, log.With("component", "grpc"))
 	pb.RegisterZigguratNodeServer(grpcSrv, tSrv)
-	tClient := transport.NewClient()
+	tClient := transport.NewClientWithCreds(grpcDialOpt)
 
 	// Wire storage replication. The Replicator uses the transport client to
 	// push shards and the cluster registry to discover peers.

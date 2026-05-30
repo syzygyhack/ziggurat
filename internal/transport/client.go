@@ -19,12 +19,23 @@ import (
 type Client struct {
 	mu    sync.Mutex
 	conns map[string]*grpc.ClientConn // addr -> conn
+	creds grpc.DialOption             // nil = insecure
 }
 
 // NewClient creates a new transport client with a connection cache.
 func NewClient() *Client {
+	return NewClientWithCreds(grpc.WithTransportCredentials(insecure.NewCredentials()))
+}
+
+// NewClientWithCreds creates a transport client with custom credentials.
+// Pass nil to use insecure credentials.
+func NewClientWithCreds(creds grpc.DialOption) *Client {
+	if creds == nil {
+		creds = grpc.WithTransportCredentials(insecure.NewCredentials())
+	}
 	return &Client{
 		conns: make(map[string]*grpc.ClientConn),
+		creds: creds,
 	}
 }
 
@@ -55,7 +66,7 @@ func (c *Client) conn(addr string) (*grpc.ClientConn, error) {
 		}
 	}
 
-	cc, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	cc, err := grpc.NewClient(addr, c.creds)
 	if err != nil {
 		return nil, fmt.Errorf("connect to %s: %w", addr, err)
 	}
