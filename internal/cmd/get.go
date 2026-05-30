@@ -10,12 +10,19 @@ import (
 	"github.com/syzygyhack/ziggurat/internal/store"
 )
 
-// looksLikeHash returns true if key is a 64-char lowercase hex string
-// (a bare BLAKE3 content hash, e.g. an output_ref). This lets `ziggurat get`
-// transparently handle both namespace keys and bare hashes so the user can
-// copy/paste output_ref values directly.
+// looksLikeHash returns true if key matches a 64-char hex hash pattern
+// (case-insensitive). Case is normalized within the function.
 func looksLikeHash(key string) bool {
 	return store.ValidateHashHex(key) == nil
+}
+
+// normalizeHashIfNeeded returns the hash in lowercase if it's a valid hex
+// hash, or the original string unchanged.
+func normalizeHashIfNeeded(key string) string {
+	if store.ValidateHashHex(key) == nil {
+		return store.NormalizeHashHex(key)
+	}
+	return key
 }
 
 var getExtract bool
@@ -34,6 +41,9 @@ func newGetCmd() *cobra.Command {
 
 func runGet(cmd *cobra.Command, args []string) error {
 	key := args[0]
+
+	// Normalize hash case so uppercase hex from copy/paste works.
+	key = normalizeHashIfNeeded(key)
 
 	// Auto-detect bare content hashes (e.g. output_ref values) and
 	// route through @hash/ so users can copy/paste hashes directly.

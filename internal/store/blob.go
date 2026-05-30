@@ -10,20 +10,46 @@ import (
 	"github.com/zeebo/blake3"
 )
 
-// ValidateHashHex checks that a hash string is exactly 64 lowercase hex
-// characters (a valid hex-encoded BLAKE3 digest). This must be called on
-// any hash received from an untrusted source before it is used in file
-// paths, to prevent directory-traversal attacks.
+// ValidateHashHex checks that a hash string is exactly 64 hex characters
+// (a valid hex-encoded BLAKE3 digest). Case is normalised before validation.
+// This must be called on any hash received from an untrusted source before it
+// is used in file paths, to prevent directory-traversal attacks.
 func ValidateHashHex(hashHex string) error {
 	if len(hashHex) != 64 {
 		return fmt.Errorf("invalid hash length %d, expected 64", len(hashHex))
 	}
+	// Validate without allocation: lowercase hex characters intersect with
+	// the uppercase range only for 'A'-'F' → 'a'-'f'.
 	for _, c := range hashHex {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
-			return fmt.Errorf("invalid hex character %q (lowercase hex required)", c)
+		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') {
+			continue
 		}
+		return fmt.Errorf("invalid hex character %q", c)
 	}
 	return nil
+}
+
+// NormalizeHashHex converts a hex hash to lowercase. The caller must ensure
+// the input has already passed ValidateHashHex.
+func NormalizeHashHex(hashHex string) string {
+	// Fast path: if already lowercase, return as-is to avoid allocation.
+	hasUpper := false
+	for _, c := range hashHex {
+		if c >= 'A' && c <= 'F' {
+			hasUpper = true
+			break
+		}
+	}
+	if !hasUpper {
+		return hashHex
+	}
+	b := []byte(hashHex)
+	for i, c := range b {
+		if c >= 'A' && c <= 'F' {
+			b[i] = c + 32 // 'a' - 'A'
+		}
+	}
+	return string(b)
 }
 
 // WriteBlob writes data from r to disk under a content-addressed path.

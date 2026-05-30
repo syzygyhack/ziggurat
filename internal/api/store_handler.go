@@ -70,7 +70,8 @@ func (s *Server) getObject(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid hash: %v", err))
 			return
 		}
-		rc, err = s.store.GetByHash(r.Context(), hash)
+		hash = store.NormalizeHashHex(hash)
+			rc, err = s.store.GetByHash(r.Context(), hash)
 	} else {
 		rc, err = s.store.Get(r.Context(), key)
 	}
