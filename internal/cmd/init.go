@@ -49,7 +49,7 @@ network:
 
 cluster:
   # seeds: []                   # gossip peers to join on startup
-  # name: default               # cluster name
+  # name: default               # cluster name for mDNS isolation
 
 storage:
   replication_factor: 2
@@ -66,10 +66,20 @@ compute:
   max_output_size: 1073741824   # 1 GB
   cancel_grace: 10s
   max_retained_workspaces: 20
+  # env_max_age: 168h           # prune persistent envs after 7 days unused
+  # env_max_count: 50           # max persistent envs (FIFO eviction)
 
 resilience:
   task_retries: 2
   dead_letter: true
+  # max_queue_depth: 0          # max queued tasks (0 = unlimited)
+
+# security:                     # Phase 1 production security
+#   tls:
+#     enabled: false            # enable mTLS for inter-node gRPC
+#     # certs_dir: ""           # override cert directory
+#   # join_token: ""            # shared secret for cluster join
+#   # api_token: ""             # bearer token for HTTP API (empty = no auth)
 
 metrics:
   enabled: true
