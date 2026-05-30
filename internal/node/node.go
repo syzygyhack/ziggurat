@@ -87,6 +87,10 @@ func (f *registryShardFetcher) FetchShard(ctx context.Context, nodeID string, ha
 
 // Start initializes all subsystems and begins serving.
 func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
+	}
+
 	dataDir := cfg.Node.DataDir
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create data dir: %w", err)

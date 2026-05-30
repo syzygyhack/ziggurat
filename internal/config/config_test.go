@@ -217,3 +217,92 @@ func TestLoadConfig_MissingFile(t *testing.T) {
 		t.Fatal("expected error for missing file")
 	}
 }
+
+func TestValidate_Defaults(t *testing.T) {
+	cfg := DefaultConfig()
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("default config should be valid: %v", err)
+	}
+}
+
+func TestValidate_Nil(t *testing.T) {
+	var cfg *Config
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("nil config should error")
+	}
+}
+
+func TestValidate_InvalidRole(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Node.Role = "bogus"
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("invalid role should error")
+	}
+}
+
+func TestValidate_PortOutOfRange(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Network.HTTPPort = 99999
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("port out of range should error")
+	}
+}
+
+func TestValidate_DuplicatePorts(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Network.GRPCPort = cfg.Network.HTTPPort
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("duplicate ports should error")
+	}
+}
+
+func TestValidate_ZeroReplication(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Storage.ReplicationFactor = 0
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("zero replication factor should error")
+	}
+}
+
+func TestValidate_ZeroDataShards(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Storage.Erasure.Enabled = true
+	cfg.Storage.Erasure.DataShards = 0
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("zero data shards should error")
+	}
+}
+
+func TestValidate_NegativeConcurrency(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Compute.Concurrency = -1
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("negative concurrency should error")
+	}
+}
+
+func TestValidate_ZeroConcurrency(t *testing.T) {
+	// Zero concurrency means "use NumCPU" — should be valid.
+	cfg := DefaultConfig()
+	cfg.Compute.Concurrency = 0
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("zero concurrency should be valid: %v", err)
+	}
+}
+
+func TestValidate_NegativeRetries(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Resilience.TaskRetries = -1
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("negative task retries should error")
+	}
+}
+
+func TestValidate_EmptyRole(t *testing.T) {
+	// Empty role is valid (defaults to "hybrid" at runtime).
+	cfg := DefaultConfig()
+	cfg.Node.Role = ""
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("empty role should be valid: %v", err)
+	}
+}

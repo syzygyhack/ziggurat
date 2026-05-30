@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -144,13 +145,12 @@ func deriveHTTPAddr(gossipAddr string, httpPort int) string {
 	if gossipAddr == "" {
 		return ""
 	}
-	// Format: "host:port" where port is the gossip port.
-	idx := strings.LastIndex(gossipAddr, ":")
-	if idx < 0 {
+	// Use net.SplitHostPort to correctly handle IPv6 addresses.
+	host, _, err := net.SplitHostPort(gossipAddr)
+	if err != nil {
 		return ""
 	}
-	host := gossipAddr[:idx]
-	return fmt.Sprintf("%s:%d", host, httpPort)
+	return net.JoinHostPort(host, fmt.Sprintf("%d", httpPort))
 }
 
 func printLocalResults(r *benchmark.LocalResult) {

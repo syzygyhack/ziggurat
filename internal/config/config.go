@@ -194,3 +194,81 @@ func LoadConfig(path string) (*Config, error) {
 	return cfg, nil
 }
 
+// Validate checks the configuration for correctness and returns a
+// descriptive error for the first problem found. It is safe to call on nil.
+func (c *Config) Validate() error {
+	if c == nil {
+		return fmt.Errorf("config is nil")
+	}
+
+	// Node role.
+	switch c.Node.Role {
+	case "", "hybrid", "coordinator", "worker":
+	default:
+		return fmt.Errorf("node.role must be one of: hybrid, coordinator, worker (got %q)", c.Node.Role)
+	}
+
+	// Port ranges and uniqueness.
+	for _, port := range []struct {
+		name string
+		val  int
+	}{
+		{"http_port", c.Network.HTTPPort},
+		{"grpc_port", c.Network.GRPCPort},
+		{"gossip_port", c.Network.GossipPort},
+	} {
+		if port.val < 1 || port.val > 65535 {
+			return fmt.Errorf("network.%s must be in range 1-65535 (got %d)", port.name, port.val)
+		}
+	}
+	if c.Network.HTTPPort == c.Network.GRPCPort {
+		return fmt.Errorf("network.http_port and network.grpc_port must be different (both use port %d)", c.Network.HTTPPort)
+	}
+	if c.Network.HTTPPort == c.Network.GossipPort {
+		return fmt.Errorf("network.http_port and network.gossip_port must be different (both use port %d)", c.Network.HTTPPort)
+	}
+	if c.Network.GRPCPort == c.Network.GossipPort {
+		return fmt.Errorf("network.grpc_port and network.gossip_port must be different (both use port %d)", c.Network.GRPCPort)
+	}
+
+	// Storage.
+	if c.Storage.ReplicationFactor < 1 {
+		return fmt.Errorf("storage.replication_factor must be >= 1 (got %d)", c.Storage.ReplicationFactor)
+	}
+	if c.Storage.Capacity < 0 {
+		return fmt.Errorf("storage.capacity must be >= 0 (got %d)", c.Storage.Capacity)
+	}
+	if c.Storage.Erasure.Enabled {
+		if c.Storage.Erasure.DataShards < 1 {
+			return fmt.Errorf("storage.erasure.data_shards must be >= 1 (got %d)", c.Storage.Erasure.DataShards)
+		}
+		if c.Storage.Erasure.ParityShards < 1 {
+			return fmt.Errorf("storage.erasure.parity_shards must be >= 1 (got %d)", c.Storage.Erasure.ParityShards)
+		}
+	}
+	if c.Storage.GCGracePeriod <= 0 {
+		return fmt.Errorf("storage.gc_grace_period must be > 0 (got %s)", c.Storage.GCGracePeriod)
+	}
+
+	// Compute.
+	if c.Compute.Concurrency < 0 {
+		return fmt.Errorf("compute.concurrency must be >= 0 (got %d)", c.Compute.Concurrency)
+	}
+	if c.Compute.TaskTimeout <= 0 {
+		return fmt.Errorf("compute.task_timeout must be > 0 (got %s)", c.Compute.TaskTimeout)
+	}
+	if c.Compute.CancelGrace <= 0 {
+		return fmt.Errorf("compute.cancel_grace must be > 0 (got %s)", c.Compute.CancelGrace)
+	}
+
+	// Resilience.
+	if c.Resilience.TaskRetries < 0 {
+		return fmt.Errorf("resilience.task_retries must be >= 0 (got %d)", c.Resilience.TaskRetries)
+	}
+	if c.Resilience.MaxQueueDepth < 0 {
+		return fmt.Errorf("resilience.max_queue_depth must be >= 0 (got %d)", c.Resilience.MaxQueueDepth)
+	}
+
+	return nil
+}
+
