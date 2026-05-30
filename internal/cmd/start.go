@@ -54,9 +54,13 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid role %q: must be hybrid, coordinator, or worker", cfg.Node.Role)
 	}
 
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	}))
+	var handler slog.Handler
+	if cfg.Log.Format == config.LogFormatJSON {
+		handler = slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})
+	} else {
+		handler = slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})
+	}
+	log := slog.New(handler)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

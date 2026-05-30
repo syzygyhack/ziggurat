@@ -251,6 +251,23 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 	// Configure worker enrollment endpoint on coordinators.
 	if cfg.Security.TLS.Enabled && (role == "coordinator" || role == "hybrid") {
 		apiSrv.SetEnrollConfig(certPaths.CACert, certPaths.CAKey, cfg.Security.JoinToken)
+
+		// Workers without a CA attempt enrollment from coordinators.
+		if cfg.Security.TLS.Enabled && role == "worker" && cfg.Security.JoinToken != "" {
+			if !certs.HasCA(certPaths.CACert, certPaths.CAKey) {
+				go func() {
+					coordAddr := findCoordinator(cfg)
+					if coordAddr == "" {
+						return
+					}
+					if err := certs.EnrollWorker(coordAddr, cfg.Security.JoinToken, nodeID, collectSANs(cfg), certPaths.Cert, certPaths.Key, certPaths.CACert); err != nil {
+						log.Warn("worker enrollment failed", "coordinator", coordAddr, "err", err)
+					} else {
+						log.Info("worker enrolled — restart to use CA-signed cert", "coordinator", coordAddr)
+					}
+				}()
+			}
+		}
 	}
 
 	// Initialize gRPC transport server and client.
@@ -629,4 +646,16 @@ func collectSANs(cfg *config.Config) []string {
 		sans = append(sans, cfg.Network.Advertise)
 	}
 	return sans
+}
+
+// findCoordinator returns the HTTP address of a coordinator from seeds.
+func findCoordinator(cfg *config.Config) string {
+	for _, seed := range cfg.Cluster.Seeds {
+		host, _, err := net.SplitHostPort(seed)
+		if err != nil {
+			continue
+		}
+		return net.JoinHostPort(host, fmt.Sprintf("%d", cfg.Network.HTTPPort))
+	}
+	return ""
 }

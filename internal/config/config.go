@@ -22,6 +22,7 @@ type Config struct {
 	Compute    ComputeConfig    `yaml:"compute"`
 	Resilience ResilienceConfig `yaml:"resilience"`
 	Security   SecurityConfig   `yaml:"security"`
+	Log        LogConfig        `yaml:"log"`
 	Metrics    MetricsConfig    `yaml:"metrics"`
 }
 
@@ -105,6 +106,19 @@ type TLSConfig struct {
 
 type MetricsConfig struct {
 	Enabled bool `yaml:"enabled"`
+}
+
+// LogFormat is the log output format.
+type LogFormat string
+
+const (
+	LogFormatText LogFormat = "text"
+	LogFormatJSON LogFormat = "json"
+)
+
+type LogConfig struct {
+	Format LogFormat `yaml:"format"` // text (default) or json
+	Level  string    `yaml:"level"`  // debug, info, warn, error (default: info)
 }
 
 // DefaultDataDir returns the platform-standard data directory (~/.ziggurat).

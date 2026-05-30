@@ -167,6 +167,11 @@ func LoadTLSConfig(certPath, keyPath, caCertPath string, requireClientCert bool)
 	return cfg, nil
 }
 
+// HasCA returns true if both the CA certificate and private key exist.
+func HasCA(caCertPath, caKeyPath string) bool {
+	return fileExists(caCertPath) && fileExists(caKeyPath)
+}
+
 // LoadCA reads and parses a CA certificate and private key from disk.
 // Exported for use by the enrollment endpoint.
 func LoadCA(certPath, keyPath string) (*x509.Certificate, *rsa.PrivateKey, error) {

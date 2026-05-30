@@ -12,7 +12,7 @@ import (
 )
 
 func newLogsCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "logs <id>",
 		Short: "Stream live task logs (stdout/stderr)",
 		Long: `Connects to the SSE log stream for a running task and prints
@@ -22,7 +22,11 @@ For completed tasks, prints the persisted stdout/stderr.`,
 		Args: cobra.ExactArgs(1),
 		RunE: runLogs,
 	}
+	cmd.Flags().BoolVar(&logsFollow, "follow", false, "alias for default behavior (always follows)")
+	return cmd
 }
+
+var logsFollow bool
 
 func runLogs(cmd *cobra.Command, args []string) error {
 	return streamLogs(args[0])
