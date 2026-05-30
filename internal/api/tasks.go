@@ -10,7 +10,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/syzygyhack/ziggurat/internal/model"
-	"github.com/syzygyhack/ziggurat/internal/util"
 )
 
 // submitTaskRequest is the JSON body for POST /api/v1/tasks.
@@ -41,10 +40,6 @@ func (s *Server) submitTask(w http.ResponseWriter, r *http.Request) {
 
 	if len(req.Command) == 0 {
 		writeError(w, http.StatusBadRequest, "command is required")
-		return
-	}
-	if err := util.ValidateNoOCIImage(req.Image); err != nil {
-		writeError(w, http.StatusNotImplemented, err.Error())
 		return
 	}
 
@@ -100,10 +95,6 @@ func (s *Server) submitBatch(w http.ResponseWriter, r *http.Request) {
 	for i, req := range reqs {
 		if len(req.Command) == 0 {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("task[%d]: command is required", i))
-			return
-		}
-		if err := util.ValidateNoOCIImage(req.Image); err != nil {
-			writeError(w, http.StatusNotImplemented, fmt.Sprintf("task[%d]: %s", i, err.Error()))
 			return
 		}
 		tasks[i] = &model.Task{

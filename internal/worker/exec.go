@@ -103,81 +103,118 @@ func Execute(ctx context.Context, task *model.Task, s *store.Store, cfg config.C
 		return &ExecResult{ExitCode: -1, Error: "empty command"}
 	}
 
-	cmd := exec.Command(task.Command[0], task.Command[1:]...)
-	cmd.Dir = workspace
-	cmd.Env = env
-
-	var stdoutBuf, stderrBuf bytes.Buffer
-	if logBroadcaster != nil {
-		cmd.Stdout = io.MultiWriter(&stdoutBuf, logBroadcaster.Writer(task.ID, "stdout"))
-		cmd.Stderr = io.MultiWriter(&stderrBuf, logBroadcaster.Writer(task.ID, "stderr"))
-	} else {
-		cmd.Stdout = &stdoutBuf
-		cmd.Stderr = &stderrBuf
-	}
-
 	// Close the log stream when execution finishes so SSE subscribers get the
-	// "done" event. Deferred before Start so it runs even on start failure.
+	// "done" event. Deferred before execution so it runs even on failure.
 	if logBroadcaster != nil {
 		defer logBroadcaster.Close(task.ID)
 	}
 
-	// Start process in its own process group for clean cancellation.
-	SetProcessGroup(cmd)
+	var exitCode int
+	var stdoutStr, stderrStr string
+	var errMsg string
+	var forcedShutdown bool
 
-	if err := cmd.Start(); err != nil {
-		return &ExecResult{
-			ExitCode: -1,
-			WallTime: time.Since(start),
-			Error:    fmt.Sprintf("start process: %v", err),
+	if task.Image != "" {
+		// Container execution path.
+		runtime := detectRuntime()
+		if runtime == "" {
+			return &ExecResult{ExitCode: -1, Error: "container execution requested but no container runtime (podman/docker) found"}
 		}
-	}
 
-	// Wait for process exit or context cancellation (timeout / user cancel).
-	waitCh := make(chan error, 1)
-	go func() {
-		waitCh <- cmd.Wait()
-	}()
+		cr := runContainer(ctx, runtime, task.Image, workspace, task.Command, env, logBroadcaster, task.ID, log)
+		exitCode = cr.ExitCode
+		stdoutStr = cr.Stdout
+		stderrStr = cr.Stderr
+		errMsg = cr.Error
+		// forcedShutdown detection: runContainer handles its own timeout/cancel,
+		// so check context state after return for timeout detection.
+		if ctx.Err() == context.DeadlineExceeded {
+			forcedShutdown = true
+		}
+	} else {
+		// Host execution path.
+		cmd := exec.Command(task.Command[0], task.Command[1:]...)
+		cmd.Dir = workspace
+		cmd.Env = env
 
-	var err error
-	forcedShutdown := false
-	select {
-	case err = <-waitCh:
-		// Process exited on its own.
-	case <-ctx.Done():
-		// Context cancelled — graceful shutdown: SIGTERM → grace → SIGKILL.
-		forcedShutdown = true
-		SendTermSignal(cmd)
+		var stdoutBuf, stderrBuf bytes.Buffer
+		if logBroadcaster != nil {
+			cmd.Stdout = io.MultiWriter(&stdoutBuf, logBroadcaster.Writer(task.ID, "stdout"))
+			cmd.Stderr = io.MultiWriter(&stderrBuf, logBroadcaster.Writer(task.ID, "stderr"))
+		} else {
+			cmd.Stdout = &stdoutBuf
+			cmd.Stderr = &stderrBuf
+		}
+
+		// Start process in its own process group for clean cancellation.
+		SetProcessGroup(cmd)
+
+		if err := cmd.Start(); err != nil {
+			return &ExecResult{
+				ExitCode: -1,
+				WallTime: time.Since(start),
+				Error:    fmt.Sprintf("start process: %v", err),
+			}
+		}
+
+		// Wait for process exit or context cancellation (timeout / user cancel).
+		waitCh := make(chan error, 1)
+		go func() {
+			waitCh <- cmd.Wait()
+		}()
+
+		var cmdErr error
 		select {
-		case err = <-waitCh:
-			// Process exited within grace period.
-		case <-time.After(cfg.CancelGrace):
-			KillProcess(cmd)
-			err = <-waitCh
+		case cmdErr = <-waitCh:
+			// Process exited on its own.
+		case <-ctx.Done():
+			// Context cancelled — graceful shutdown: SIGTERM → grace → SIGKILL.
+			forcedShutdown = true
+			SendTermSignal(cmd)
+			select {
+			case cmdErr = <-waitCh:
+				// Process exited within grace period.
+			case <-time.After(cfg.CancelGrace):
+				KillProcess(cmd)
+				cmdErr = <-waitCh
+			}
 		}
+
+		if cmdErr != nil {
+			if exitErr, ok := cmdErr.(*exec.ExitError); ok {
+				exitCode = exitErr.ExitCode()
+			} else {
+				return &ExecResult{
+					ExitCode: -1,
+					Stdout:   truncate(stdoutBuf.String(), 64*1024),
+					Stderr:   truncate(stderrBuf.String(), 64*1024),
+					WallTime: time.Since(start),
+					Error:    fmt.Sprintf("exec error: %v", cmdErr),
+				}
+			}
+		}
+		stdoutStr = stdoutBuf.String()
+		stderrStr = stderrBuf.String()
+		errMsg = ""
 	}
 
 	wallTime := time.Since(start)
 
-	exitCode := 0
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			exitCode = exitErr.ExitCode()
-		} else {
-			return &ExecResult{
-				ExitCode: -1,
-				Stdout:   truncate(stdoutBuf.String(), 64*1024),
-				Stderr:   truncate(stderrBuf.String(), 64*1024),
-				WallTime: wallTime,
-				Error:    fmt.Sprintf("exec error: %v", err),
-			}
+	// If error was set during execution, return it now.
+	if errMsg != "" {
+		return &ExecResult{
+			ExitCode: -1,
+			Stdout:   truncate(stdoutStr, 64*1024),
+			Stderr:   truncate(stderrStr, 64*1024),
+			WallTime: wallTime,
+			Error:    errMsg,
 		}
 	}
 
 	result = &ExecResult{
 		ExitCode: exitCode,
-		Stdout:   truncate(stdoutBuf.String(), 64*1024),
-		Stderr:   truncate(stderrBuf.String(), 64*1024),
+		Stdout:   truncate(stdoutStr, 64*1024),
+		Stderr:   truncate(stderrStr, 64*1024),
 		WallTime: wallTime,
 	}
 

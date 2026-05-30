@@ -7,7 +7,6 @@ import (
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
-	"github.com/syzygyhack/ziggurat/internal/util"
 	"gopkg.in/yaml.v3"
 )
 
@@ -132,12 +131,6 @@ func runPipelineSubmit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("parse pipeline file: %w", err)
 	}
 
-	// Reject image field client-side — OCI execution is not yet supported.
-	for i, s := range def.Stages {
-		if err := util.ValidateNoOCIImage(s.Image); err != nil {
-			return fmt.Errorf("stage[%d] (%s): %w", i, s.ID, err)
-		}
-	}
 
 	// Convert to JSON for the API.
 	jsonData, err := json.Marshal(def)

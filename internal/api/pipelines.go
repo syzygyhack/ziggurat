@@ -2,12 +2,10 @@ package api
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/syzygyhack/ziggurat/internal/model"
-	"github.com/syzygyhack/ziggurat/internal/util"
 )
 
 type submitPipelineRequest struct {
@@ -32,12 +30,6 @@ func (s *Server) submitPipeline(w http.ResponseWriter, r *http.Request) {
 	if len(req.Stages) == 0 {
 		writeError(w, http.StatusBadRequest, "pipeline must have at least one stage")
 		return
-	}
-	for i, stage := range req.Stages {
-		if err := util.ValidateNoOCIImage(stage.Image); err != nil {
-			writeError(w, http.StatusNotImplemented, fmt.Sprintf("stage[%d]: %s", i, err.Error()))
-			return
-		}
 	}
 
 	p := &model.Pipeline{

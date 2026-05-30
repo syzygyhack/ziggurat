@@ -107,9 +107,6 @@ func runRun(cmd *cobra.Command, args []string) error {
 		body["constraints"] = runConstraints
 	}
 
-	if err := util.ValidateNoOCIImage(runImage); err != nil {
-		return fmt.Errorf("--image: %w", err)
-	}
 
 	// Build environment sub-object.
 	if runEnvSetup != "" && runEnv == "" && len(runEnvFingerprint) == 0 {
