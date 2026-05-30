@@ -507,6 +507,11 @@ func (n *Node) Shutdown(ctx context.Context) error {
 		n.transport.Close()
 	}
 
+	// Cancel all background goroutines first — they may call into the
+	// cluster (e.g. refreshCapabilities → UpdateMeta) and must stop
+	// before we tear down memberlist.
+	n.cancelBackground()
+
 	// Leave cluster gracefully so other nodes see a clean departure.
 	if n.cluster != nil {
 		if err := n.cluster.Leave(); err != nil {
@@ -514,9 +519,6 @@ func (n *Node) Shutdown(ctx context.Context) error {
 		}
 		n.cluster.Shutdown()
 	}
-
-	// Cancel all background goroutines, then wait for in-flight work to drain.
-	n.cancelBackground()
 
 	// Wait for any in-flight async repair goroutines spawned by TriggerRepair
 	// (e.g. from OnLeave callbacks) before closing databases.

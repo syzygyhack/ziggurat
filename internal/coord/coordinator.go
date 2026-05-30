@@ -544,7 +544,9 @@ func (c *Coordinator) CompleteRemote(id string, exitCode int, stdout, stderr, er
 	if t.Metrics.WallTime > 0 {
 		metrics.TaskDuration.Observe(time.Duration(t.Metrics.WallTime).Seconds())
 	}
-	ReleaseRefs(t, c.store)
+	if !t.RemoteOrigin {
+		ReleaseRefs(t, c.store)
+	}
 	c.notifyWaiters(id)
 	metrics.TaskQueueDepth.Set(float64(c.queue.Len()))
 
