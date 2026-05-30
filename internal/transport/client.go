@@ -324,6 +324,9 @@ func (sr *streamReader) Read(p []byte) (int, error) {
 		}
 		sr.buf = msg.Data
 		sr.pos = 0
+		if len(sr.buf) == 0 {
+			continue // skip empty data frames
+		}
 	}
 
 	n := copy(p, sr.buf[sr.pos:])

@@ -21,8 +21,9 @@ type LogBroadcaster struct {
 }
 
 type taskStream struct {
-	mu   sync.Mutex
-	subs []subscriber
+	mu     sync.Mutex
+	subs   []subscriber
+	closed bool // set under lb.mu; Write checks under ts.mu
 }
 
 type subscriber struct {
@@ -99,6 +100,7 @@ func (lb *LogBroadcaster) Close(taskID string) {
 	ts, ok := lb.tasks[taskID]
 	if ok {
 		delete(lb.tasks, taskID)
+		ts.closed = true // signal Write to skip this taskStream
 	}
 	lb.mu.Unlock()
 
@@ -134,6 +136,10 @@ func (w *logWriter) Write(p []byte) (int, error) {
 
 	if ok {
 		ts.mu.Lock()
+		if ts.closed {
+			ts.mu.Unlock()
+			return len(p), nil
+		}
 		for _, s := range ts.subs {
 			select {
 			case s.ch <- ev:

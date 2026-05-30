@@ -351,13 +351,17 @@ func uploadOutput(ctx context.Context, s *store.Store, outputDir, taskID string)
 	errCh := make(chan error, 1)
 	go func() {
 		tarErr := store.CreateDeterministicTar(outputDir, pw)
+		// CloseWithError BEFORE send so the reader is always unblocked,
+		// even if the main goroutine exits on s.Put error.
+		pw.CloseWithError(tarErr)
 		errCh <- tarErr
-		pw.CloseWithError(tarErr) // propagate error to reader side
 	}()
 
 	nsKey := fmt.Sprintf("output/%s", taskID)
 	hash, err := s.Put(ctx, nsKey, pr)
 	if err != nil {
+		pr.Close() // unblock writer goroutine so errCh drain won't hang
+		<-errCh     // wait for goroutine to finish to avoid leak
 		return "", err
 	}
 

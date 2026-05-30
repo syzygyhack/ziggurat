@@ -138,7 +138,9 @@ func runPipelineSubmit(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	var payload map[string]any
-	json.Unmarshal(jsonData, &payload)
+	if err := json.Unmarshal(jsonData, &payload); err != nil {
+		return fmt.Errorf("encode pipeline: %w", err)
+	}
 
 	resp, err := doPost("/pipelines", payload)
 	if err != nil {

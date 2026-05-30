@@ -59,7 +59,9 @@ func runBatch(cmd *cobra.Command, args []string) error {
 
 	// Re-decode as generic slice for doPost.
 	var payload []any
-	json.Unmarshal(jsonData, &payload)
+	if err := json.Unmarshal(jsonData, &payload); err != nil {
+		return fmt.Errorf("encode batch: %w", err)
+	}
 
 	resp, err := doPost("/tasks/batch", payload)
 	if err != nil {
