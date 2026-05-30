@@ -236,12 +236,13 @@ func (f *zigFile) Read(ctx context.Context, fh fs.FileHandle, dest []byte, off i
 	data := f.cached
 	f.mu.Unlock()
 
-	end := off + int64(len(data))
-	if end > int64(len(data)) {
-		end = int64(len(data))
-	}
 	if off >= int64(len(data)) {
 		return fuse.ReadResultData(nil), 0
+	}
+
+	end := off + int64(len(dest))
+	if end > int64(len(data)) {
+		end = int64(len(data))
 	}
 
 	return fuse.ReadResultData(data[off:end]), 0
@@ -309,14 +310,20 @@ var _ = (fs.FileWriter)((*zigWriteFile)(nil))
 var _ = (fs.FileFlusher)((*zigWriteFile)(nil))
 
 func (wf *zigWriteFile) Write(ctx context.Context, data []byte, off int64) (uint32, syscall.Errno) {
-	n, _ := wf.buf.Write(data)
+	end := int(off) + len(data)
+	if end > wf.buf.Len() {
+		// Grow: extend to required size, pad gap with zeros.
+		extra := make([]byte, end-wf.buf.Len())
+		wf.buf.Write(extra)
+	}
+	// Overwrite at the given offset.
+	b := wf.buf.Bytes()
+	n := copy(b[off:end], data)
 	return uint32(n), 0
 }
 
 func (wf *zigWriteFile) Flush(ctx context.Context) syscall.Errno {
-	if wf.buf.Len() == 0 {
-		return 0
-	}
+	// Always flush — even empty files must be persisted (truncate/create).
 	u := storeURL(wf.apiBase, wf.key)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPut, u, &wf.buf)
 	if err != nil {

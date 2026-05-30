@@ -261,8 +261,12 @@ func shellGet(args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: get <key> [dest]")
 	}
-	key := args[0]
-	resp, err := doGet(storeKeyPath(key))
+	key := normalizeHashIfNeeded(args[0])
+	path := storeKeyPath(key)
+	if looksLikeHash(key) {
+		path = storeKeyPath("@hash/" + key)
+	}
+	resp, err := doGet(path)
 	if err != nil {
 		return err
 	}
