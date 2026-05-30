@@ -608,8 +608,9 @@ func (s *Store) Pin(hashHex string) error {
 	})
 }
 
-// Unpin decrements the reference count and clears the Pinned flag, allowing
-// GC to collect the object once all other references are released.
+// Unpin decrements the reference count, clears the Pinned flag, and sets
+// UnreferencedAt when RefCount reaches zero (matching decrRefInTx behavior).
+// This ensures GC can eventually collect the object after the grace period.
 func (s *Store) Unpin(hashHex string) error {
 	if err := ValidateHashHex(hashHex); err != nil {
 		return err
@@ -631,6 +632,9 @@ func (s *Store) Unpin(hashHex string) error {
 			meta.RefCount--
 		}
 		meta.Pinned = false
+		if meta.RefCount == 0 && meta.UnreferencedAt.IsZero() {
+			meta.UnreferencedAt = time.Now()
+		}
 		updated, err := json.Marshal(meta)
 		if err != nil {
 			return err

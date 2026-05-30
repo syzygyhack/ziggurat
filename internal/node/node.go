@@ -465,7 +465,7 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 		return nil, fmt.Errorf("listen grpc %s: %w", grpcAddr, err)
 	}
 	go func() {
-		if err := grpcSrv.Serve(grpcLn); err != nil {
+		if err := grpcSrv.Serve(grpcLn); err != nil && err != grpc.ErrServerStopped {
 			log.Error("grpc server error", "err", err)
 		}
 	}()

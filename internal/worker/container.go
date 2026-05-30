@@ -176,7 +176,8 @@ func ensureImage(ctx context.Context, runtime, image string, log *slog.Logger) e
 }
 
 // writeEnvFile writes key=value pairs to a temp file in a format suitable
-// for --env-file (one KEY=value per line). Returns the path.
+// for --env-file (one KEY=value per line). Rejects values containing
+// newlines to prevent env-var injection via the line-oriented file format.
 func writeEnvFile(env []string) (string, error) {
 	f, err := os.CreateTemp("", "ziggurat-env-*")
 	if err != nil {
@@ -186,6 +187,9 @@ func writeEnvFile(env []string) (string, error) {
 
 	w := bufio.NewWriter(f)
 	for _, e := range env {
+		if strings.Contains(e, "\n") || strings.Contains(e, "\r") {
+			return "", fmt.Errorf("env value contains newline (injection rejected): %q", e)
+		}
 		if _, err := fmt.Fprintln(w, e); err != nil {
 			return "", err
 		}

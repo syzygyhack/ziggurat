@@ -142,6 +142,9 @@ func (r *Replicator) AfterPut(ctx context.Context, hashHex string) error {
 
 		err = r.pusher.PushShard(ctx, peer.Addr, hashHex, meta.Size, rc)
 		if closeErr := rc.Close(); closeErr != nil {
+			if err == nil {
+				err = closeErr
+			}
 			r.log.Error("integrity check failed during data movement", "hash", hashHex[:12], "err", closeErr)
 		}
 		if err != nil {
@@ -646,6 +649,9 @@ func (r *Replicator) Rebalance(ctx context.Context, newNodeID string) int {
 		}
 		err = r.pusher.PushShard(ctx, newAddr, obj.hashHex, obj.meta.Size, rc)
 		if closeErr := rc.Close(); closeErr != nil {
+			if err == nil {
+				err = closeErr
+			}
 			r.log.Error("integrity check failed during data movement", "hash", obj.hashHex[:12], "err", closeErr)
 		}
 		if err != nil {
@@ -726,6 +732,9 @@ func (r *Replicator) MigrateAll(ctx context.Context) int {
 		}
 		err = r.pusher.PushShard(ctx, peer.Addr, obj.hashHex, obj.meta.Size, rc)
 		if closeErr := rc.Close(); closeErr != nil {
+			if err == nil {
+				err = closeErr
+			}
 			r.log.Error("integrity check failed during data movement", "hash", obj.hashHex[:12], "err", closeErr)
 		}
 		if err != nil {
