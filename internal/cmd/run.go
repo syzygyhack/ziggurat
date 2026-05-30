@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/syzygyhack/ziggurat/internal/util"
 )
 
 var (
@@ -105,8 +107,8 @@ func runRun(cmd *cobra.Command, args []string) error {
 		body["constraints"] = runConstraints
 	}
 
-	if runImage != "" {
-		return fmt.Errorf("--image: OCI image execution is not yet supported; omit the --image flag to run on the host OS")
+	if err := util.ValidateNoOCIImage(runImage); err != nil {
+		return fmt.Errorf("--image: %w", err)
 	}
 
 	// Build environment sub-object.
@@ -150,7 +152,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		cfg["affinity"] = runAffinity
 	}
 	if runMaxOutput != "" {
-		size, err := parseSize(runMaxOutput)
+		size, err := util.ParseByteSize(runMaxOutput)
 		if err != nil {
 			return fmt.Errorf("invalid --max-output: %w", err)
 		}
@@ -169,7 +171,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		resources["gpus"] = runGPUs
 	}
 	if runMemory != "" {
-		size, err := parseSize(runMemory)
+		size, err := util.ParseByteSize(runMemory)
 		if err != nil {
 			return fmt.Errorf("invalid --memory: %w", err)
 		}
@@ -257,34 +259,3 @@ func runRun(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// parseSize parses human-readable byte sizes (e.g. "4GB", "512MB", "1024").
-func parseSize(s string) (int64, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return 0, fmt.Errorf("empty size")
-	}
-
-	multiplier := int64(1)
-	upper := strings.ToUpper(s)
-	for _, suffix := range []struct {
-		s string
-		m int64
-	}{
-		{"TB", 1 << 40},
-		{"GB", 1 << 30},
-		{"MB", 1 << 20},
-		{"KB", 1 << 10},
-	} {
-		if strings.HasSuffix(upper, suffix.s) {
-			multiplier = suffix.m
-			s = strings.TrimSpace(s[:len(s)-len(suffix.s)])
-			break
-		}
-	}
-
-	var n int64
-	if _, err := fmt.Sscanf(s, "%d", &n); err != nil {
-		return 0, fmt.Errorf("invalid size %q", s)
-	}
-	return n * multiplier, nil
-}

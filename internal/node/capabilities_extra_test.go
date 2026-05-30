@@ -1,6 +1,10 @@
 package node
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/syzygyhack/ziggurat/internal/util"
+)
 
 func TestParseCUDAVersion(t *testing.T) {
 	tests := []struct {
@@ -40,8 +44,8 @@ Build cuda_12.4.r12.4/compiler.34097967_0`,
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := parseCUDAVersion(tt.input); got != tt.want {
-				t.Errorf("parseCUDAVersion() = %q, want %q", got, tt.want)
+			if got := util.ParseCUDAVersion(tt.input); got != tt.want {
+				t.Errorf("util.ParseCUDAVersion() = %q, want %q", got, tt.want)
 			}
 		})
 	}

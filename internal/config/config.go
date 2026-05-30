@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/syzygyhack/ziggurat/internal/util"
 )
 
 // Config mirrors the ziggurat.yaml schema.
@@ -164,7 +166,7 @@ func LoadConfig(path string) (*Config, error) {
 		// 1. Current directory.
 		if _, err := os.Stat("ziggurat.yaml"); err == nil {
 			path = "ziggurat.yaml"
-		} else if p := ConfigPath(); fileExists(p) {
+		} else if p := ConfigPath(); util.FileExists(p) {
 			// 2. Data directory (~/.ziggurat/ziggurat.yaml).
 			path = p
 		} else {
@@ -192,7 +194,3 @@ func LoadConfig(path string) (*Config, error) {
 	return cfg, nil
 }
 
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}

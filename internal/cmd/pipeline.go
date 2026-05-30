@@ -7,6 +7,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
+	"github.com/syzygyhack/ziggurat/internal/util"
 	"gopkg.in/yaml.v3"
 )
 
@@ -133,8 +134,8 @@ func runPipelineSubmit(cmd *cobra.Command, args []string) error {
 
 	// Reject image field client-side — OCI execution is not yet supported.
 	for i, s := range def.Stages {
-		if s.Image != "" {
-			return fmt.Errorf("stage[%d] (%s): OCI image execution is not yet supported; remove the image field", i, s.ID)
+		if err := util.ValidateNoOCIImage(s.Image); err != nil {
+			return fmt.Errorf("stage[%d] (%s): %w", i, s.ID, err)
 		}
 	}
 

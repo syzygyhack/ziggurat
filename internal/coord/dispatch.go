@@ -213,7 +213,7 @@ func (d *Dispatcher) collectResults(ctx context.Context) {
 		// requeued (worker departed) or cancelled, remove from tracking
 		// rather than polling a potentially dead address.
 		t, err := d.coord.Get(id)
-		if err != nil || isTerminal(t.Status) || t.Status == model.TaskQueued {
+		if err != nil || t.Status.IsTerminal() || t.Status == model.TaskQueued {
 			// If the task was cancelled locally, also cancel on the remote
 			// worker. This closes the race where Cancel() fires before the
 			// dispatch tracking entry exists or while the task is SCHEDULED.

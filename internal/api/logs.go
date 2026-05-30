@@ -39,7 +39,7 @@ func (s *Server) taskLogs(w http.ResponseWriter, r *http.Request) {
 	// If the task is already in a terminal state, send persisted output.
 	// This works even without a broadcaster — completed task output is
 	// always available from the coordinator's stored stdout/stderr.
-	if isTerminalStatus(task.Status.String()) {
+	if task.Status.IsTerminal() {
 		sendPersistedLogs(w, flusher, task.Stdout, task.Stderr)
 		fmt.Fprintf(w, "event: done\ndata: {\"status\":%q,\"exit_code\":%d}\n\n", task.Status.String(), task.ExitCode)
 		flusher.Flush()
@@ -61,7 +61,7 @@ func (s *Server) taskLogs(w http.ResponseWriter, r *http.Request) {
 	// If the task completed between the Get() above and Subscribe(), the
 	// broadcaster's Close() already ran, so our channel will never be closed.
 	// Detect this by re-fetching the task and falling back to persisted output.
-	if t2, err := s.coord.Get(id); err == nil && isTerminalStatus(t2.Status.String()) {
+	if t2, err := s.coord.Get(id); err == nil && t2.Status.IsTerminal() {
 		sendPersistedLogs(w, flusher, t2.Stdout, t2.Stderr)
 		fmt.Fprintf(w, "event: done\ndata: {\"status\":%q,\"exit_code\":%d}\n\n", t2.Status.String(), t2.ExitCode)
 		flusher.Flush()
@@ -121,12 +121,4 @@ func sendPersistedLogs(w http.ResponseWriter, flusher http.Flusher, stdout, stde
 		}
 	}
 	flusher.Flush()
-}
-
-func isTerminalStatus(s string) bool {
-	switch s {
-	case "completed", "failed", "cancelled", "dead_letter":
-		return true
-	}
-	return false
 }

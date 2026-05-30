@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/syzygyhack/ziggurat/internal/util"
 )
 
 // DetectCapabilities probes the local system and returns a map of
@@ -119,31 +121,11 @@ func detectNvidiaGPU(caps map[string]string) {
 	// CUDA version from nvcc.
 	if nvcc, err := exec.LookPath("nvcc"); err == nil {
 		if out, err := exec.Command(nvcc, "--version").Output(); err == nil {
-			if v := parseCUDAVersion(string(out)); v != "" {
+			if v := util.ParseCUDAVersion(string(out)); v != "" {
 				caps["gpu.cuda"] = v
 			}
 		}
 	}
-}
-
-// parseCUDAVersion extracts the version from nvcc --version output.
-// Example line: "Cuda compilation tools, release 12.4, V12.4.131"
-func parseCUDAVersion(output string) string {
-	for _, line := range strings.Split(output, "\n") {
-		if strings.Contains(line, "release") {
-			// Find "release X.Y"
-			idx := strings.Index(line, "release ")
-			if idx < 0 {
-				continue
-			}
-			rest := line[idx+len("release "):]
-			if comma := strings.Index(rest, ","); comma > 0 {
-				return strings.TrimSpace(rest[:comma])
-			}
-			return strings.TrimSpace(rest)
-		}
-	}
-	return ""
 }
 
 func dedup(ss []string) []string {

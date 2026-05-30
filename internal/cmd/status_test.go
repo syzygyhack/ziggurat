@@ -3,6 +3,8 @@ package cmd
 import (
 	"testing"
 	"time"
+
+	"github.com/syzygyhack/ziggurat/internal/util"
 )
 
 func TestParseSize(t *testing.T) {
@@ -24,13 +26,13 @@ func TestParseSize(t *testing.T) {
 		{" 8 GB ", 8 << 30, false},
 	}
 	for _, tt := range tests {
-		got, err := parseSize(tt.input)
+		got, err := util.ParseByteSize(tt.input)
 		if (err != nil) != tt.wantErr {
-			t.Errorf("parseSize(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+			t.Errorf("util.ParseByteSize(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
 			continue
 		}
 		if err == nil && got != tt.want {
-			t.Errorf("parseSize(%q) = %d, want %d", tt.input, got, tt.want)
+			t.Errorf("util.ParseByteSize(%q) = %d, want %d", tt.input, got, tt.want)
 		}
 	}
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/syzygyhack/ziggurat/internal/model"
+	"github.com/syzygyhack/ziggurat/internal/util"
 )
 
 // submitTaskRequest is the JSON body for POST /api/v1/tasks.
@@ -42,8 +43,8 @@ func (s *Server) submitTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "command is required")
 		return
 	}
-	if req.Image != "" {
-		writeError(w, http.StatusNotImplemented, "OCI image execution is not yet supported; omit the image field to run on the host OS")
+	if err := util.ValidateNoOCIImage(req.Image); err != nil {
+		writeError(w, http.StatusNotImplemented, err.Error())
 		return
 	}
 
@@ -101,8 +102,8 @@ func (s *Server) submitBatch(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("task[%d]: command is required", i))
 			return
 		}
-		if req.Image != "" {
-			writeError(w, http.StatusNotImplemented, fmt.Sprintf("task[%d]: OCI image execution is not yet supported", i))
+		if err := util.ValidateNoOCIImage(req.Image); err != nil {
+			writeError(w, http.StatusNotImplemented, fmt.Sprintf("task[%d]: %s", i, err.Error()))
 			return
 		}
 		tasks[i] = &model.Task{

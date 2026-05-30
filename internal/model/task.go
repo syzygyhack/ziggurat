@@ -20,6 +20,12 @@ const (
 	TaskDeadLetter                   // retries exhausted, moved to dead letter queue
 )
 
+// IsTerminal returns true if the task is in a terminal state (no further
+// state transitions will occur).
+func (s TaskStatus) IsTerminal() bool {
+	return s == TaskCompleted || s == TaskFailed || s == TaskCancelled || s == TaskDeadLetter
+}
+
 func (s TaskStatus) String() string {
 	switch s {
 	case TaskQueued:

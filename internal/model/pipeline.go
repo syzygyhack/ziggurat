@@ -43,6 +43,5 @@ type Stage struct {
 
 // IsTerminal returns true if the stage is in a terminal state.
 func (s *Stage) IsTerminal() bool {
-	return s.Status == TaskCompleted || s.Status == TaskFailed ||
-		s.Status == TaskCancelled || s.Status == TaskDeadLetter
+	return s.Status.IsTerminal()
 }

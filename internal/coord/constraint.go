@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/syzygyhack/ziggurat/internal/util"
 )
 
 // Constraint represents a parsed capability constraint expression.
@@ -52,8 +54,8 @@ func EvalConstraint(c Constraint, caps map[string]string) bool {
 	}
 
 	// Try integer comparison (with byte suffix support).
-	if aInt, aOk := parseIntValue(actual); aOk {
-		if bInt, bOk := parseIntValue(c.Value); bOk {
+	if aInt, err := util.ParseByteSize(actual); err == nil {
+		if bInt, err := util.ParseByteSize(c.Value); err == nil {
 			return compareInt(aInt, c.Op, bInt)
 		}
 	}
@@ -84,34 +86,6 @@ func MatchesConstraints(constraints []string, caps map[string]string) bool {
 	return true
 }
 
-// parseIntValue parses a string as an integer, supporting byte suffixes.
-func parseIntValue(s string) (int64, bool) {
-	s = strings.TrimSpace(s)
-
-	multiplier := int64(1)
-	upper := strings.ToUpper(s)
-	for _, suffix := range []struct {
-		s string
-		m int64
-	}{
-		{"TB", 1 << 40},
-		{"GB", 1 << 30},
-		{"MB", 1 << 20},
-		{"KB", 1 << 10},
-	} {
-		if strings.HasSuffix(upper, suffix.s) {
-			multiplier = suffix.m
-			s = strings.TrimSpace(s[:len(s)-len(suffix.s)])
-			break
-		}
-	}
-
-	n, err := strconv.ParseInt(s, 10, 64)
-	if err != nil {
-		return 0, false
-	}
-	return n * multiplier, true
-}
 
 func compareInt(a int64, op string, b int64) bool {
 	switch op {

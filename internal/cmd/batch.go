@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/syzygyhack/ziggurat/internal/util"
 	"gopkg.in/yaml.v3"
 )
 
@@ -52,8 +53,8 @@ func runBatch(cmd *cobra.Command, args []string) error {
 
 	// Reject image field client-side — OCI execution is not yet supported.
 	for i, t := range tasks {
-		if t.Image != "" {
-			return fmt.Errorf("task[%d]: OCI image execution is not yet supported; remove the image field", i)
+		if err := util.ValidateNoOCIImage(t.Image); err != nil {
+			return fmt.Errorf("task[%d]: %w", i, err)
 		}
 	}
 

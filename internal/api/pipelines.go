@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/syzygyhack/ziggurat/internal/model"
+	"github.com/syzygyhack/ziggurat/internal/util"
 )
 
 type submitPipelineRequest struct {
@@ -33,8 +34,8 @@ func (s *Server) submitPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for i, stage := range req.Stages {
-		if stage.Image != "" {
-			writeError(w, http.StatusNotImplemented, fmt.Sprintf("stage[%d]: OCI image execution is not yet supported", i))
+		if err := util.ValidateNoOCIImage(stage.Image); err != nil {
+			writeError(w, http.StatusNotImplemented, fmt.Sprintf("stage[%d]: %s", i, err.Error()))
 			return
 		}
 	}

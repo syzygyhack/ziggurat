@@ -255,7 +255,7 @@ func (c *Coordinator) Wait(ctx context.Context, id string) (*model.Task, error) 
 	}
 	id = resolved
 	t := c.tasks[id]
-	if isTerminal(t.Status) {
+	if t.Status.IsTerminal() {
 		cp := *t
 		c.mu.RUnlock()
 		return &cp, nil
@@ -388,7 +388,7 @@ func (c *Coordinator) Complete(id string, exitCode int, stdout, stderr, errMsg, 
 	// If the task already reached a terminal state (e.g. cancelled while
 	// dispatched to a remote worker), don't process the result again.
 	// This prevents double ReleaseRefs and double waiter notification.
-	if isTerminal(t.Status) {
+	if t.Status.IsTerminal() {
 		return nil
 	}
 
@@ -438,7 +438,7 @@ func (c *Coordinator) Complete(id string, exitCode int, stdout, stderr, errMsg, 
 		c.log.Error("failed to persist completion", "id", id, "err", err)
 	}
 
-	terminal := isTerminal(t.Status)
+	terminal := t.Status.IsTerminal()
 	finalStatus := t.Status
 	if terminal {
 		metrics.TasksCompleted.WithLabelValues(t.Status.String()).Inc()
@@ -481,7 +481,7 @@ func (c *Coordinator) CompleteRemote(id string, exitCode int, stdout, stderr, er
 		return fmt.Errorf("task not found: %s", id)
 	}
 
-	if isTerminal(t.Status) {
+	if t.Status.IsTerminal() {
 		return nil
 	}
 
@@ -720,7 +720,7 @@ func (c *Coordinator) MarkDispatched(id, workerID string) bool {
 	if !ok {
 		return false
 	}
-	if isTerminal(t.Status) || t.Status == model.TaskCancelling {
+	if t.Status.IsTerminal() || t.Status == model.TaskCancelling {
 		return false
 	}
 	t.Status = model.TaskScheduled
@@ -794,10 +794,6 @@ func (c *Coordinator) resolveID(id string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("task not found: %s", id)
-}
-
-func isTerminal(s model.TaskStatus) bool {
-	return s == model.TaskCompleted || s == model.TaskFailed || s == model.TaskCancelled || s == model.TaskDeadLetter
 }
 
 // deepCopyTask returns a fully independent copy of a task, including all

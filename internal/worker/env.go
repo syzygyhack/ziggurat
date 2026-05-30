@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/syzygyhack/ziggurat/internal/model"
+	"github.com/syzygyhack/ziggurat/internal/util"
 	"github.com/zeebo/blake3"
 )
 
@@ -66,7 +67,7 @@ func ResolveEnv(ctx context.Context, task *model.Task, dataDir, workspace string
 		storedFP, _ := os.ReadFile(filepath.Join(envPath, envFingerprintFile))
 		if currentFP == "" {
 			// No fingerprint files — setup runs only if env is brand new.
-			if !fileExists(filepath.Join(envPath, envFingerprintFile)) {
+			if !util.FileExists(filepath.Join(envPath, envFingerprintFile)) {
 				needsSetup = true
 			}
 		} else if string(storedFP) != currentFP {
@@ -86,7 +87,7 @@ func ResolveEnv(ctx context.Context, task *model.Task, dataDir, workspace string
 		storedFP, _ := os.ReadFile(filepath.Join(envPath, envFingerprintFile))
 		recheck := false
 		if currentFP == "" {
-			recheck = !fileExists(filepath.Join(envPath, envFingerprintFile))
+			recheck = !util.FileExists(filepath.Join(envPath, envFingerprintFile))
 		} else {
 			recheck = string(storedFP) != currentFP
 		}
@@ -339,11 +340,6 @@ func sanitizeName(name string) string {
 	// Replace path separators and dangerous characters.
 	r := strings.NewReplacer("/", "_", "\\", "_", "..", "_", " ", "_")
 	return r.Replace(name)
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
 }
 
 func dirSizeQuiet(path string) int64 {
