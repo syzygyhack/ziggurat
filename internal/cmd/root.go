@@ -45,6 +45,8 @@ func NewRootCmd(version, commit string) *cobra.Command {
 	root.AddCommand(newGetCmd())
 	root.AddCommand(newLsCmd())
 	root.AddCommand(newRmCmd())
+	root.AddCommand(newPinCmd())
+	root.AddCommand(newUnpinCmd())
 
 	// Cluster
 	root.AddCommand(newStatusCmd())
@@ -64,6 +66,7 @@ func NewRootCmd(version, commit string) *cobra.Command {
 	// Diagnostics
 	root.AddCommand(newBenchmarkCmd())
 	root.AddCommand(newTopCmd())
+	root.AddCommand(newTokenCmd())
 
 	return root
 }

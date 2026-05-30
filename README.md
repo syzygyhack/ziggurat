@@ -77,12 +77,17 @@ network:
   gossip_port: 7102   # memberlist gossip
 
 cluster:
+  name: default
   seeds: [10.0.0.5:7102]
 
 storage:
   replication_factor: 2
   capacity: 53687091200  # 50 GB
   gc_grace_period: 1h
+  erasure:
+    enabled: true
+    data_shards: 4
+    parity_shards: 2
 
 compute:
   concurrency: 4           # max parallel tasks (0 = NumCPU)
@@ -90,10 +95,19 @@ compute:
   max_output_size: 1073741824  # 1 GB
   cancel_grace: 10s
   max_retained_workspaces: 20
+  env_max_age: 168h        # 7 days
+  env_max_count: 50
 
 resilience:
   task_retries: 2
   dead_letter: true
+  max_queue_depth: 0       # 0 = unlimited
+
+security:
+  tls:
+    enabled: false         # mTLS for inter-node gRPC
+  join_token: ""           # shared secret for cluster join
+  api_token: ""            # bearer token for HTTP API
 ```
 
 Connection resolution for client commands: `--addr` flag > `ZIGGURAT_ADDR` env > config `client.addr` > `127.0.0.1:7100`.
@@ -111,14 +125,17 @@ Connection resolution for client commands: `--addr` flag > `ZIGGURAT_ADDR` env >
 | `ziggurat status` | Cluster dashboard |
 | `ziggurat nodes` | List cluster members |
 | `ziggurat version` | Binary version |
+| `ziggurat token generate` | Generate a cluster join token |
 
 ### Tasks
 | Command | Description |
 |---------|-------------|
 | `ziggurat run -- <cmd>` | Submit a task |
+| `ziggurat run --image <ref> -- <cmd>` | Submit a task in an OCI container |
 | `ziggurat run --wait -- <cmd>` | Submit and wait for result |
 | `ziggurat tasks` | List tasks (filterable: `--status running`) |
 | `ziggurat task <id>` | Task detail + stdout/stderr |
+| `ziggurat logs <id>` | Stream live stdout/stderr (SSE) |
 | `ziggurat cancel <id>` | Cancel a task |
 | `ziggurat wait <id>` | Block until task completes |
 | `ziggurat batch --from <file>` | Submit batch from JSON/YAML |
@@ -146,6 +163,7 @@ Connection resolution for client commands: `--addr` flag > `ZIGGURAT_ADDR` env >
 | `ziggurat get <key> [dest]` | Download object |
 | `ziggurat ls [prefix]` | List objects |
 | `ziggurat rm <key>` | Delete object |
+| `ziggurat mount <path>` | FUSE-mount the store at a directory |
 
 ### Diagnostics
 | Command | Description |

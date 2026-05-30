@@ -28,6 +28,11 @@ cluster:
 storage:
   # data_dir: ""              # Override store directory (default: <node.data_dir>/store)
   replication_factor: 2
+  # capacity: 0               # Storage capacity limit in bytes (0 = unlimited)
+  erasure:
+    enabled: true
+    data_shards: 4            # k = minimum shards to reconstruct
+    parity_shards: 2          # m = redundancy shards (tolerates m failures)
   tier_thresholds:
     medium: 1048576           # 1 MB
     large: 67108864           # 64 MB
@@ -49,6 +54,14 @@ resilience:
   suspicion_timeout: 5s
   task_retries: 2
   dead_letter: true
+  # max_queue_depth: 0        # Max queued tasks (0 = unlimited)
+
+security:
+  # tls:
+  #   enabled: false          # Enable mTLS for inter-node gRPC
+  #   certs_dir: ""           # Override cert directory (default: <data_dir>/certs)
+  # join_token: ""            # Shared secret for cluster join (empty = open cluster)
+  # api_token: ""             # Bearer token for HTTP API (empty = no auth)
 
 metrics:
   enabled: true
