@@ -303,6 +303,10 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 		pm.RecoverPipelines(ctx)
 	}
 
+	// Start rate limiter background cleanup so the per-IP bucket map
+	// doesn't grow monotonically with distinct clients.
+	apiSrv.StartRateLimiterCleanup(ctx)
+
 	n := &Node{
 		cfg:        cfg,
 		log:        log,

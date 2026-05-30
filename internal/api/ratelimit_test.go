@@ -91,29 +91,22 @@ func TestRateLimiter_Middleware(t *testing.T) {
 	}
 }
 
-func TestRealIP(t *testing.T) {
+func TestStripPort(t *testing.T) {
 	tests := []struct {
-		name    string
-		headers map[string]string
-		remote  string
-		want    string
+		input string
+		want  string
 	}{
-		{"RemoteAddr only", nil, "10.0.0.1:12345", "10.0.0.1"},
-		{"X-Forwarded-For", map[string]string{"X-Forwarded-For": "1.2.3.4"}, "10.0.0.1:12345", "1.2.3.4"},
-		{"X-Real-IP", map[string]string{"X-Real-IP": "5.6.7.8"}, "10.0.0.1:12345", "5.6.7.8"},
-		{"X-Forwarded-For comma", map[string]string{"X-Forwarded-For": "1.2.3.4, 10.0.0.1"}, "10.0.0.1:12345", "1.2.3.4"},
-		{"IPv6 RemoteAddr", nil, "[::1]:12345", "::1"},
+		{"10.0.0.1:12345", "10.0.0.1"},
+		{"[::1]:12345", "::1"},
+		{"192.168.1.1:8080", "192.168.1.1"},
+		{"hostname:9999", "hostname"},
+		{"noport", "noport"},
+		{"", ""},
+		{"[::1]", "::1"}, // bracket with no port — strips brackets, keeps address
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("GET", "/", nil)
-			req.RemoteAddr = tt.remote
-			for k, v := range tt.headers {
-				req.Header.Set(k, v)
-			}
-			if got := realIP(req); got != tt.want {
-				t.Errorf("realIP() = %q, want %q", got, tt.want)
-			}
-		})
+		if got := stripPort(tt.input); got != tt.want {
+			t.Errorf("stripPort(%q) = %q, want %q", tt.input, got, tt.want)
+		}
 	}
 }

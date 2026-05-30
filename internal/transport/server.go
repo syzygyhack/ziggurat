@@ -21,7 +21,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const chunkSize = 256 * 1024      // 256 KB per streaming message
+const chunkSize = 256 * 1024     // 256 KB per streaming message
 const maxECShardSize = 256 << 20 // 256 MiB hard cap on EC shard receive buffer
 
 // Server implements the ZigguratNode gRPC service.
@@ -89,7 +89,8 @@ func (s *Server) PullShard(req *pb.PullShardRequest, stream pb.ZigguratNode_Pull
 	if err := store.ValidateHashHex(req.Hash); err != nil {
 		return status.Errorf(codes.InvalidArgument, "invalid hash: %v", err)
 	}
-	rc, err := s.store.GetByHash(stream.Context(), req.Hash)
+	hash := store.NormalizeHashHex(req.Hash)
+	rc, err := s.store.GetByHash(stream.Context(), hash)
 	if err != nil {
 		return status.Errorf(codes.NotFound, "object not found: %s", req.Hash)
 	}
@@ -128,13 +129,14 @@ func (s *Server) PullECShard(req *pb.PullECShardRequest, stream pb.ZigguratNode_
 	if err := store.ValidateHashHex(req.Hash); err != nil {
 		return status.Errorf(codes.InvalidArgument, "invalid hash: %v", err)
 	}
+	hash := store.NormalizeHashHex(req.Hash)
 
 	idx := int(req.ShardIndex)
 	if idx < 0 {
 		return status.Errorf(codes.InvalidArgument, "negative shard index")
 	}
 
-	path := store.ShardPath(s.store.Dir(), req.Hash, idx)
+	path := store.ShardPath(s.store.Dir(), hash, idx)
 	f, err := os.Open(path)
 	if err != nil {
 		return status.Errorf(codes.NotFound, "shard %d not found for %s", idx, req.Hash[:12])
@@ -184,6 +186,8 @@ func (s *Server) PushShard(stream pb.ZigguratNode_PushShardServer) error {
 			Error: fmt.Sprintf("invalid hash: %v", err),
 		})
 	}
+
+	hdr.Hash = store.NormalizeHashHex(hdr.Hash)
 
 	if hdr.GetIsEcShard() {
 		return s.pushECShard(stream, hdr)
@@ -395,10 +399,11 @@ func (s *Server) RetireReplica(ctx context.Context, req *pb.RetireReplicaRequest
 	if err := store.ValidateHashHex(req.Hash); err != nil {
 		return &pb.RetireReplicaResponse{Ok: false, Error: fmt.Sprintf("invalid hash: %v", err)}, nil
 	}
-	if err := s.store.RetireReplica(req.Hash); err != nil {
+	hash := store.NormalizeHashHex(req.Hash)
+	if err := s.store.RetireReplica(hash); err != nil {
 		return &pb.RetireReplicaResponse{Ok: false, Error: err.Error()}, nil
 	}
-	s.log.Info("replica retired", "hash", req.Hash[:12])
+	s.log.Info("replica retired", "hash", hash[:12])
 	return &pb.RetireReplicaResponse{Ok: true}, nil
 }
 
@@ -424,15 +429,15 @@ func (s *Server) CancelTask(ctx context.Context, req *pb.CancelTaskRequest) (*pb
 // protoToTask converts a DispatchTaskRequest to a model.Task.
 func protoToTask(req *pb.DispatchTaskRequest) *model.Task {
 	t := &model.Task{
-		ID:        req.Id,
-		Command:   req.Command,
-		Env:       req.Env,
-		InputRefs: req.InputRefs,
-		Artifacts: req.Artifacts,
-		Params:    req.Params,
-		Requires:  req.Requires,
+		ID:          req.Id,
+		Command:     req.Command,
+		Env:         req.Env,
+		InputRefs:   req.InputRefs,
+		Artifacts:   req.Artifacts,
+		Params:      req.Params,
+		Requires:    req.Requires,
 		Constraints: req.Constraints,
-		Image:     req.Image,
+		Image:       req.Image,
 		Config: model.TaskConfig{
 			Priority:      int(req.Priority),
 			Timeout:       model.Duration(time.Duration(req.TimeoutNs)),
@@ -496,4 +501,3 @@ func taskToProto(t *model.Task) *pb.DispatchTaskRequest {
 	}
 	return req
 }
-

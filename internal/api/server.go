@@ -38,6 +38,7 @@ type Server struct {
 	pipelines        *coord.PipelineManager
 	role             string     // "hybrid", "coordinator", "worker"
 	logBroadcaster   *worker.LogBroadcaster
+	rateLimiter      *RateLimiter
 }
 
 // New creates an API server (single-node mode).
@@ -72,7 +73,10 @@ func newServer(c *coord.Coordinator, s *store.Store, nodes NodeLister, log *slog
 	srv.router.Use(requestLogger(log))
 	srv.router.Use(middleware.Recoverer)
 	// Rate limit: 100 req/s with burst of 200 per IP.
-	srv.router.Use(NewRateLimiter(100, 200).Middleware)
+	// Must be installed after middleware.RealIP so RemoteAddr is already
+	// resolved from trusted proxy headers.
+	srv.rateLimiter = NewRateLimiter(100, 200)
+	srv.router.Use(srv.rateLimiter.Middleware)
 
 	RegisterRoutes(srv.router, srv)
 
@@ -119,6 +123,15 @@ func (s *Server) SetOnDrain(fn func()) {
 // When set, the /api/v1/tasks/:id/logs endpoint streams live stdout/stderr.
 func (s *Server) SetLogBroadcaster(lb *worker.LogBroadcaster) {
 	s.logBroadcaster = lb
+}
+
+// StartRateLimiterCleanup starts the background goroutine that periodically
+// evicts expired client buckets from the rate limiter. The goroutine exits
+// when ctx is cancelled. Call during node startup.
+func (s *Server) StartRateLimiterCleanup(ctx context.Context) {
+	if s.rateLimiter != nil {
+		s.rateLimiter.BackgroundCleanup(ctx, 5*time.Minute)
+	}
 }
 
 // Start begins listening on the given address.

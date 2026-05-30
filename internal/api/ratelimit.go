@@ -66,11 +66,11 @@ func (rl *RateLimiter) Allow(addr string) bool {
 }
 
 // Middleware returns an HTTP middleware that rate-limits requests per IP.
-// The real IP is extracted from X-Forwarded-For or X-Real-IP headers,
-// falling back to RemoteAddr.
+// It uses r.RemoteAddr directly — this middleware must be installed AFTER
+// chi's middleware.RealIP, which sets RemoteAddr from trusted proxy headers.
 func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := realIP(r)
+		ip := stripPort(r.RemoteAddr)
 		if !rl.Allow(ip) {
 			w.Header().Set("Retry-After", "1")
 			http.Error(w, `{"error":"rate limit exceeded"}`, http.StatusTooManyRequests)
@@ -94,29 +94,21 @@ func (rl *RateLimiter) Cleanup(age time.Duration) {
 	}
 }
 
-// realIP extracts the client IP from standard proxy headers, falling
-// back to RemoteAddr.
-func realIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// Take the first (original client) address.
-		for i := 0; i < len(xff); i++ {
-			if xff[i] == ',' {
-				return xff[:i]
+// stripPort removes the port from an address string like "1.2.3.4:12345"
+// or "[::1]:12345". Returns the addr unchanged if no port is found.
+func stripPort(addr string) string {
+	// IPv6 with brackets: [::1]:port
+	if len(addr) > 0 && addr[0] == '[' {
+		for i := len(addr) - 1; i >= 0; i-- {
+			if addr[i] == ']' {
+				return addr[1:i]
 			}
 		}
-		return xff
+		return addr
 	}
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return xri
-	}
-	// Strip port from RemoteAddr if present.
-	addr := r.RemoteAddr
+	// IPv4 or hostname: addr:port
 	for i := len(addr) - 1; i >= 0; i-- {
 		if addr[i] == ':' {
-			// Check for IPv6 bracket.
-			if i > 0 && addr[i-1] == ']' {
-				return addr[1 : i-1] // strip brackets
-			}
 			return addr[:i]
 		}
 	}

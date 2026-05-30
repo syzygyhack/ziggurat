@@ -151,7 +151,15 @@ func (c *Coordinator) Submit(ctx context.Context, task *model.Task) (*model.Task
 	// TryPush atomically checks queue depth and pushes, preventing the
 	// race where two concurrent Submits both pass the length check.
 	if !c.queue.TryPush(task, c.defaults.MaxQueueDepth) {
+		// Clean up: release refs and delete the persisted ghost task.
+		// Persist happens before TryPush (to guard against crash between
+		// visibility and persistence), so a rejected task would survive
+		// in BoltDB and be re-enqueued on restart — with refs already
+		// decremented.
 		ReleaseRefs(task, c.store)
+		if err := c.persist.Delete(task.ID); err != nil {
+			c.log.Error("failed to delete ghost task after queue rejection", "id", task.ID, "err", err)
+		}
 		return nil, fmt.Errorf("queue depth limit exceeded (%d)", c.defaults.MaxQueueDepth)
 	}
 
@@ -693,6 +701,13 @@ func (c *Coordinator) AcceptDispatch(ctx context.Context, task *model.Task) erro
 	// TryPush atomically checks queue depth and pushes, preventing the
 	// race where two concurrent dispatches both pass the length check.
 	if !c.queue.TryPush(task, c.defaults.MaxQueueDepth) {
+		// Delete the ghost task persisted above since it won't be
+		// enqueued. Unlike Submit, we don't release refs because
+		// AcceptDispatch doesn't increment them (RemoteOrigin tasks
+		// have their refcounts managed by the origin coordinator).
+		if err := c.persist.Delete(task.ID); err != nil {
+			c.log.Error("failed to delete ghost dispatched task", "id", task.ID, "err", err)
+		}
 		return fmt.Errorf("queue depth limit exceeded (%d)", c.defaults.MaxQueueDepth)
 	}
 
