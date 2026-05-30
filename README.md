@@ -163,6 +163,8 @@ Connection resolution for client commands: `--addr` flag > `ZIGGURAT_ADDR` env >
 | `ziggurat get <key> [dest]` | Download object |
 | `ziggurat ls [prefix]` | List objects |
 | `ziggurat rm <key>` | Delete object |
+| `ziggurat pin <key>` | Pin object (prevent GC) |
+| `ziggurat unpin <key>` | Unpin object (allow GC) |
 | `ziggurat mount <path>` | FUSE-mount the store at a directory |
 
 ### Diagnostics
