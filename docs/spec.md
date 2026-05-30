@@ -1094,7 +1094,7 @@ DELETE /api/v1/pipelines/:id        Cancel pipeline                 [1]
 PUT    /api/v1/store/*key           Upload object                   [0a]
 GET    /api/v1/store/*key           Download object                 [0a]
 DELETE /api/v1/store/*key           Delete object                   [0a]
-GET    /api/v1/store?prefix=...     List objects                    [0a]
+GET    /api/v1/store/*              List objects (?prefix=...)       [0a]
 POST   /api/v1/store/*key/pin       Pin object                      [0b]
 DELETE /api/v1/store/*key/pin       Unpin object                    [0b]
 
@@ -1221,6 +1221,7 @@ const (
     TaskFailed
     TaskCancelling
     TaskCancelled
+    TaskDeadLetter  // retries exhausted, held for inspection
 )
 
 type TaskMetrics struct {
@@ -1231,12 +1232,12 @@ type TaskMetrics struct {
     OutputBytes int64         // total bytes written to $ZIGGURAT_OUTPUT
 }
 
-type PipelineStatus int
+type PipelineStatus string
 const (
-    PipelineRunning   PipelineStatus = iota
-    PipelineCompleted
-    PipelineFailed
-    PipelineCancelled
+    PipelineRunning   PipelineStatus = "running"
+    PipelineCompleted PipelineStatus = "completed"
+    PipelineFailed    PipelineStatus = "failed"
+    PipelineCancelled PipelineStatus = "cancelled"
 )
 
 // ── Storage ───────────────────────────────────────
