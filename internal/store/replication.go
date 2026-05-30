@@ -141,7 +141,9 @@ func (r *Replicator) AfterPut(ctx context.Context, hashHex string) error {
 		}
 
 		err = r.pusher.PushShard(ctx, peer.Addr, hashHex, meta.Size, rc)
-		rc.Close()
+		if closeErr := rc.Close(); closeErr != nil {
+			r.log.Error("integrity check failed during data movement", "hash", hashHex[:12], "err", closeErr)
+		}
 		if err != nil {
 			r.log.Warn("replication push failed", "hash", hashHex[:12], "peer", peer.Addr, "err", err)
 			continue
@@ -643,7 +645,9 @@ func (r *Replicator) Rebalance(ctx context.Context, newNodeID string) int {
 			continue
 		}
 		err = r.pusher.PushShard(ctx, newAddr, obj.hashHex, obj.meta.Size, rc)
-		rc.Close()
+		if closeErr := rc.Close(); closeErr != nil {
+			r.log.Error("integrity check failed during data movement", "hash", obj.hashHex[:12], "err", closeErr)
+		}
 		if err != nil {
 			r.log.Warn("rebalance: push failed", "hash", obj.hashHex[:12], "peer", newAddr, "err", err)
 			continue
@@ -721,7 +725,9 @@ func (r *Replicator) MigrateAll(ctx context.Context) int {
 			continue
 		}
 		err = r.pusher.PushShard(ctx, peer.Addr, obj.hashHex, obj.meta.Size, rc)
-		rc.Close()
+		if closeErr := rc.Close(); closeErr != nil {
+			r.log.Error("integrity check failed during data movement", "hash", obj.hashHex[:12], "err", closeErr)
+		}
 		if err != nil {
 			r.log.Warn("migrate: push failed", "hash", obj.hashHex[:12], "peer", peer.Addr, "err", err)
 			continue

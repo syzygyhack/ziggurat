@@ -107,7 +107,13 @@ func (w *Worker) execute(ctx context.Context, task *model.Task) {
 		timeout = w.cfg.TaskTimeout
 	}
 
-	execCtx, cancel := context.WithTimeout(ctx, timeout)
+	var execCtx context.Context
+	var cancel context.CancelFunc
+	if timeout > 0 {
+		execCtx, cancel = context.WithTimeout(ctx, timeout)
+	} else {
+		execCtx, cancel = context.WithCancel(ctx)
+	}
 	defer cancel()
 
 	// Register cancel BEFORE MarkRunning so a concurrent Cancel() that

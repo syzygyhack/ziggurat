@@ -50,6 +50,14 @@ func Execute(ctx context.Context, task *model.Task, s *store.Store, cfg config.C
 		}
 	}
 
+	// Close the log stream when execution finishes so SSE subscribers get
+	// the "done" event. Must be deferred early (before any step that can
+	// fail) — if input fetch or env resolution fails, an SSE subscriber
+	// would otherwise leak waiting on a channel that will never close.
+	if logBroadcaster != nil {
+		defer logBroadcaster.Close(task.ID)
+	}
+
 	// Workspace cleanup deferred: retain if keep_workspace is set, or if the
 	// task fails/is cancelled (per spec). Successful tasks always clean up.
 	// After retention, enforce max_retained_workspaces via FIFO eviction.
@@ -101,12 +109,6 @@ func Execute(ctx context.Context, task *model.Task, s *store.Store, cfg config.C
 	// 6. Execute command.
 	if len(task.Command) == 0 {
 		return &ExecResult{ExitCode: -1, Error: "empty command"}
-	}
-
-	// Close the log stream when execution finishes so SSE subscribers get the
-	// "done" event. Deferred before execution so it runs even on failure.
-	if logBroadcaster != nil {
-		defer logBroadcaster.Close(task.ID)
 	}
 
 	var exitCode int

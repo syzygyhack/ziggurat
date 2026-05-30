@@ -223,7 +223,10 @@ func matchesResources(req model.ResourceReq, caps map[string]string) bool {
 }
 
 // parseConstraints pre-parses constraint expression strings into
-// Constraint structs so Pop never re-parses.
+// Constraint structs so Pop never re-parses. Malformed constraints are
+// silently skipped — Submit validates them before enqueuing, and
+// recovery should not re-introduce sentinel constraints that would
+// create infinite dequeue/repush cycles.
 func parseConstraints(exprs []string) []Constraint {
 	if len(exprs) == 0 {
 		return nil
@@ -232,9 +235,7 @@ func parseConstraints(exprs []string) []Constraint {
 	for _, expr := range exprs {
 		c, err := ParseConstraint(expr)
 		if err != nil {
-			// Store a sentinel that always fails evaluation.
-			out = append(out, Constraint{Key: "", Op: "!", Value: "malformed"})
-			continue
+			continue // malformed — validated at submission time
 		}
 		out = append(out, c)
 	}

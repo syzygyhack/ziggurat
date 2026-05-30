@@ -130,6 +130,14 @@ func (c *Coordinator) Submit(ctx context.Context, task *model.Task) (*model.Task
 		task.Config.Timeout = model.Duration(c.defaults.Timeout)
 	}
 
+	// Validate constraints before resolving refs — malformed constraints
+	// would otherwise produce permanently un-dequeuable tasks.
+	for i, expr := range task.Constraints {
+		if _, err := ParseConstraint(expr); err != nil {
+			return nil, fmt.Errorf("constraint[%d] %q: %w", i, expr, err)
+		}
+	}
+
 	// Resolve namespace keys to content hashes at submission time.
 	if err := ResolveRefs(task, c.store); err != nil {
 		return nil, fmt.Errorf("resolve refs: %w", err)

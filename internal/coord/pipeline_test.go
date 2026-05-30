@@ -231,7 +231,7 @@ func TestPipeline_ConstraintsAndImagePropagation(t *testing.T) {
 			{
 				ID:          "a",
 				Command:     []string{"echo", "gpu"},
-				Constraints: []string{"gpu=nvidia"},
+				Constraints: []string{"gpu == nvidia"},
 				Image:       "cuda:12.0",
 			},
 		},
@@ -253,8 +253,8 @@ func TestPipeline_ConstraintsAndImagePropagation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(task.Constraints) != 1 || task.Constraints[0] != "gpu=nvidia" {
-		t.Fatalf("expected constraints [gpu=nvidia], got %v", task.Constraints)
+	if len(task.Constraints) != 1 || task.Constraints[0] != "gpu == nvidia" {
+		t.Fatalf("expected constraints [gpu == nvidia], got %v", task.Constraints)
 	}
 	if task.Image != "cuda:12.0" {
 		t.Fatalf("expected image cuda:12.0, got %s", task.Image)
