@@ -110,6 +110,64 @@ func (s *Server) deleteObject(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"deleted": key})
 }
 
+func (s *Server) pinObject(w http.ResponseWriter, r *http.Request) {
+	key := extractStoreKey(r)
+	key = strings.TrimSuffix(key, "/pin")
+	if key == "" {
+		writeError(w, http.StatusBadRequest, "namespace key is required")
+		return
+	}
+	hash, err := s.store.Resolve(key)
+	if err != nil {
+		writeError(w, http.StatusNotFound, fmt.Sprintf("resolve key: %v", err))
+		return
+	}
+	if err := s.store.Pin(hash); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"pinned": key, "hash": hash})
+}
+
+func (s *Server) unpinObject(w http.ResponseWriter, r *http.Request) {
+	key := extractStoreKey(r)
+	key = strings.TrimSuffix(key, "/pin")
+	if key == "" {
+		writeError(w, http.StatusBadRequest, "namespace key is required")
+		return
+	}
+	hash, err := s.store.Resolve(key)
+	if err != nil {
+		writeError(w, http.StatusNotFound, fmt.Sprintf("resolve key: %v", err))
+		return
+	}
+	if err := s.store.Unpin(hash); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"unpinned": key, "hash": hash})
+}
+
+// handleStorePost dispatches POST /store/* requests: /pin suffix goes to pin,
+// everything else is rejected.
+func (s *Server) handleStorePost(w http.ResponseWriter, r *http.Request) {
+	if strings.HasSuffix(r.URL.Path, "/pin") {
+		s.pinObject(w, r)
+		return
+	}
+	writeError(w, http.StatusMethodNotAllowed, "POST /store/* only supports /pin suffix")
+}
+
+// handleStoreDelete dispatches DELETE /store/* requests: /pin suffix goes to
+// unpin, everything else goes to delete.
+func (s *Server) handleStoreDelete(w http.ResponseWriter, r *http.Request) {
+	if strings.HasSuffix(r.URL.Path, "/pin") {
+		s.unpinObject(w, r)
+		return
+	}
+	s.deleteObject(w, r)
+}
+
 func extractStoreKey(r *http.Request) string {
 	// Route is /api/v1/store/*, chi gives us the wildcard.
 	path := r.URL.Path

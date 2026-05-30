@@ -71,11 +71,9 @@ func runContainer(ctx context.Context, runtime, image, workspace string, command
 		"-w", "/workspace",
 		"--env-file", envFile,
 	}
-	// Add --pull=missing for podman (docker uses --pull missing by default).
-	// Podman 4.x uses --pull=never by default, which would fail on missing images.
-	if runtime == "podman" {
-		args = append(args, "--pull", "missing")
-	}
+	// --pull=missing: only pull if image not already present locally.
+	// Podman 4.x defaults to --pull=never; Docker default varies by version.
+	args = append(args, "--pull", "missing")
 	args = append(args, image)
 	args = append(args, command...)
 

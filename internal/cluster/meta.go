@@ -8,13 +8,14 @@ import (
 // It is serialized to JSON and attached to the memberlist Node.Meta field.
 // Keep this small — memberlist has a default meta limit of 512 bytes.
 type NodeMeta struct {
-	ID       string            `json:"id"`
-	Name     string            `json:"name"`
-	HTTPPort int               `json:"http_port"`
-	GRPCPort int               `json:"grpc_port"`
-	Tags     []string          `json:"tags,omitempty"`
-	Caps     map[string]string `json:"caps,omitempty"`
-	Role     string            `json:"role"`
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	HTTPPort    int               `json:"http_port"`
+	GRPCPort    int               `json:"grpc_port"`
+	Tags        []string          `json:"tags,omitempty"`
+	Caps        map[string]string `json:"caps,omitempty"`
+	Role        string            `json:"role"`
+	ClusterName string            `json:"cluster"`
 }
 
 func encodeMeta(m *NodeMeta) ([]byte, error) {

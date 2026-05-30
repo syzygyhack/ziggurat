@@ -43,14 +43,19 @@ type Cluster struct {
 func New(cfg Config, log *slog.Logger) (*Cluster, error) {
 	registry := NewRegistry(log)
 
+	clusterName := cfg.ClusterName
+	if clusterName == "" {
+		clusterName = "default"
+	}
 	meta := &NodeMeta{
-		ID:       cfg.NodeID,
-		Name:     cfg.NodeName,
-		HTTPPort: cfg.HTTPPort,
-		GRPCPort: cfg.GRPCPort,
-		Tags:     cfg.Tags,
-		Caps:     cfg.Caps,
-		Role:     cfg.Role,
+		ID:          cfg.NodeID,
+		Name:        cfg.NodeName,
+		HTTPPort:    cfg.HTTPPort,
+		GRPCPort:    cfg.GRPCPort,
+		Tags:        cfg.Tags,
+		Caps:        cfg.Caps,
+		Role:        cfg.Role,
+		ClusterName: clusterName,
 	}
 
 	del, err := newDelegate(meta)
@@ -67,7 +72,7 @@ func New(cfg Config, log *slog.Logger) (*Cluster, error) {
 		mlCfg.AdvertiseAddr = cfg.AdvertiseAddr
 	}
 	mlCfg.Delegate = del
-	mlCfg.Events = &eventDelegate{registry: registry}
+	mlCfg.Events = &eventDelegate{registry: registry, clusterName: clusterName}
 
 	// Suppress memberlist's built-in logging — we route through slog.
 	mlCfg.LogOutput = &slogWriter{log: log.With("component", "memberlist")}

@@ -238,7 +238,7 @@ func (c *Coordinator) Cancel(id string) (*model.Task, error) {
 			fn()
 		}
 		c.cancelMu.Unlock()
-	case model.TaskCompleted, model.TaskFailed, model.TaskCancelled:
+	case model.TaskCompleted, model.TaskFailed, model.TaskCancelled, model.TaskDeadLetter:
 		// No-op.
 	}
 

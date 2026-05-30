@@ -579,6 +579,66 @@ func (s *Store) DecrRef(hashHex string) error {
 	return s.decrRef(hashHex)
 }
 
+// Pin increments the reference count and sets the Pinned flag, preventing
+// GC from collecting the object even after all namespace aliases are removed.
+func (s *Store) Pin(hashHex string) error {
+	if err := ValidateHashHex(hashHex); err != nil {
+		return err
+	}
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketObjects)
+		if b == nil {
+			return fmt.Errorf("objects bucket not found")
+		}
+		data := b.Get([]byte(hashHex))
+		if data == nil {
+			return fmt.Errorf("object not found: %s", hashHex[:12])
+		}
+		var meta model.ObjectMeta
+		if err := json.Unmarshal(data, &meta); err != nil {
+			return err
+		}
+		meta.RefCount++
+		meta.Pinned = true
+		updated, err := json.Marshal(meta)
+		if err != nil {
+			return err
+		}
+		return b.Put([]byte(hashHex), updated)
+	})
+}
+
+// Unpin decrements the reference count and clears the Pinned flag, allowing
+// GC to collect the object once all other references are released.
+func (s *Store) Unpin(hashHex string) error {
+	if err := ValidateHashHex(hashHex); err != nil {
+		return err
+	}
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketObjects)
+		if b == nil {
+			return fmt.Errorf("objects bucket not found")
+		}
+		data := b.Get([]byte(hashHex))
+		if data == nil {
+			return fmt.Errorf("object not found: %s", hashHex[:12])
+		}
+		var meta model.ObjectMeta
+		if err := json.Unmarshal(data, &meta); err != nil {
+			return err
+		}
+		if meta.RefCount > 0 {
+			meta.RefCount--
+		}
+		meta.Pinned = false
+		updated, err := json.Marshal(meta)
+		if err != nil {
+			return err
+		}
+		return b.Put([]byte(hashHex), updated)
+	})
+}
+
 // StorageStats holds aggregate statistics about the object store.
 type StorageStats struct {
 	Objects  int   `json:"objects"`

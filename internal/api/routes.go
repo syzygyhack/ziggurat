@@ -30,7 +30,8 @@ func RegisterRoutes(r chi.Router, s *Server) {
 		// Storage
 		r.Put("/store/*", s.putObject)
 		r.Get("/store/*", s.getObject)
-		r.Delete("/store/*", s.deleteObject)
+		r.Post("/store/*", s.handleStorePost)
+			r.Delete("/store/*", s.handleStoreDelete)
 
 		// Cluster
 		r.Get("/health", s.health)
