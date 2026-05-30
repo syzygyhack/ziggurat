@@ -71,6 +71,8 @@ func newServer(c *coord.Coordinator, s *store.Store, nodes NodeLister, log *slog
 	srv.router.Use(middleware.RealIP)
 	srv.router.Use(requestLogger(log))
 	srv.router.Use(middleware.Recoverer)
+	// Rate limit: 100 req/s with burst of 200 per IP.
+	srv.router.Use(NewRateLimiter(100, 200).Middleware)
 
 	RegisterRoutes(srv.router, srv)
 
