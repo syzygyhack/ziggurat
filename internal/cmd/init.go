@@ -81,6 +81,10 @@ resilience:
 #   # join_token: ""            # shared secret for cluster join
 #   # api_token: ""             # bearer token for HTTP API (empty = no auth)
 
+# log:                           # structured logging options
+#   format: text                 # text | json
+#   level: info                  # debug | info | warn | error
+
 metrics:
   enabled: true
 `

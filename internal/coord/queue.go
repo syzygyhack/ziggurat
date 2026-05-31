@@ -245,9 +245,6 @@ func parseConstraints(exprs []string) []Constraint {
 // evalCachedConstraints evaluates pre-parsed constraints against caps.
 func evalCachedConstraints(constraints []Constraint, caps map[string]string) bool {
 	for _, c := range constraints {
-		if c.Op == "!" {
-			return false // malformed sentinel
-		}
 		if !EvalConstraint(c, caps) {
 			return false
 		}

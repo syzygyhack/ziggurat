@@ -108,6 +108,10 @@ security:
     enabled: false         # mTLS for inter-node gRPC
   join_token: ""           # shared secret for cluster join
   api_token: ""            # bearer token for HTTP API
+
+log:
+  format: text             # text | json
+  level: info              # debug | info | warn | error
 ```
 
 Connection resolution for client commands: `--addr` flag > `ZIGGURAT_ADDR` env > config `client.addr` > `127.0.0.1:7100`.
