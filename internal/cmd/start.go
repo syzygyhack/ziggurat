@@ -54,11 +54,13 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid role %q: must be hybrid, coordinator, or worker", cfg.Node.Role)
 	}
 
+	level := parseLogLevel(cfg.Log.Level)
 	var handler slog.Handler
+	opts := &slog.HandlerOptions{Level: level}
 	if cfg.Log.Format == config.LogFormatJSON {
-		handler = slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})
+		handler = slog.NewJSONHandler(os.Stderr, opts)
 	} else {
-		handler = slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})
+		handler = slog.NewTextHandler(os.Stderr, opts)
 	}
 	log := slog.New(handler)
 
@@ -77,4 +79,17 @@ func runStart(cmd *cobra.Command, args []string) error {
 	log.Info("received signal", "signal", sig)
 
 	return n.Shutdown(context.Background())
+}
+
+func parseLogLevel(s string) slog.Level {
+	switch s {
+	case "debug":
+		return slog.LevelDebug
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
 }
