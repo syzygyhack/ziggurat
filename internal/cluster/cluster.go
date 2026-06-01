@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strings"
 	"strconv"
 	"time"
 
@@ -76,6 +77,12 @@ func New(cfg Config, log *slog.Logger) (*Cluster, error) {
 	mlCfg.AdvertisePort = cfg.BindPort
 	if cfg.AdvertiseAddr != "" {
 		mlCfg.AdvertiseAddr = cfg.AdvertiseAddr
+		if isVirtualAddr(cfg.AdvertiseAddr) {
+			log.Warn("cluster: advertise address may be unreachable from LAN (virtual bridge)", "addr", cfg.AdvertiseAddr)
+			log.Warn("cluster: set network.advertise in config to this machine's LAN IP for cross-machine connectivity")
+		} else {
+			log.Info("cluster: advertise address", "addr", cfg.AdvertiseAddr)
+		}
 	}
 	mlCfg.Delegate = del
 	evDel := &eventDelegate{
@@ -278,6 +285,25 @@ type slogWriter struct {
 func (w *slogWriter) Write(p []byte) (n int, err error) {
 	w.log.Debug(string(p))
 	return len(p), nil
+}
+
+// isVirtualAddr returns true if the address is in a known virtual bridge
+// range (WSL2, Docker, VPN) that is typically not reachable from other
+// machines on the LAN.
+func isVirtualAddr(addr string) bool {
+	for _, prefix := range []string{
+		"172.17.",  // Docker default bridge
+		"172.18.", "172.19.",
+		"172.20.", "172.21.", "172.22.", "172.23.", "172.24.",
+		"172.25.", "172.26.", "172.27.", "172.28.", "172.29.",
+		"172.30.", "172.31.", // WSL2 range (172.18-31.x.x)
+		"10.",       // VPN/enterprise
+	} {
+		if strings.HasPrefix(addr, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // detectEgressAddr determines the local IP address that would be used to
