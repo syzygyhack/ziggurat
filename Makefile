@@ -23,9 +23,9 @@ build:
 	go build $(LDFLAGS) -o $(BINARY)$(BINARY_EXT) ./cmd/ziggurat/
 
 install: build
-	@if [ ! -d "$(INSTALL_DIR)" ]; then mkdir -p "$(INSTALL_DIR)"; fi
-	cp $(BINARY)$(BINARY_EXT) "$(INSTALL_DIR)/"
-	@echo "Installed $(BINARY)$(BINARY_EXT) to $(INSTALL_DIR)"
+	-mkdir -p $(INSTALL_DIR)
+	cp $(BINARY)$(BINARY_EXT) $(INSTALL_DIR)/
+	@echo Installed $(BINARY)$(BINARY_EXT) to $(INSTALL_DIR)
 
 test:
 	go test ./... $(ARGS)
