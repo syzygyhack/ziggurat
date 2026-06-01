@@ -134,7 +134,11 @@ func New(cfg Config, log *slog.Logger) (*Cluster, error) {
 			log.Warn("cluster: join failed, running standalone", "seeds", seeds, "err", err)
 			log.Warn("cluster: troubleshoot: check that the seed node is running, the gossip port is open, and the machines can reach each other", "port", cfg.BindPort)
 			if cfg.AdvertiseAddr == "" {
-				log.Warn("cluster: if this node is behind NAT (WSL/Docker), set network.advertise to its LAN-reachable IP")
+				// Auto-detected IP may be a WSL/Docker/VPN bridge address
+				// that isn't reachable from the LAN. The user must set
+				// network.advertise to the LAN IP.
+				log.Warn("cluster: auto-detected advertise address may be unreachable from LAN (WSL/Docker/VPN)")
+				log.Warn("cluster: set network.advertise to this machine's LAN IP in ~/.ziggurat/ziggurat.yaml")
 			}
 		} else {
 			log.Info("cluster: joined", "contacted", n, "members", ml.NumMembers())
