@@ -27,6 +27,7 @@ type Config struct {
 	Discovery     string // "auto", "mdns", "seeds", "static" — controls peer discovery
 	ClusterName   string // logical cluster name for mDNS filtering
 	JoinToken     string // shared secret for cluster join (empty = open)
+	JoinTimeout   time.Duration // timeout for initial join attempt (0 = default 10s)
 }
 
 // Cluster manages gossip-based membership and the node registry.
@@ -66,6 +67,9 @@ func New(cfg Config, log *slog.Logger) (*Cluster, error) {
 	}
 
 	mlCfg := memberlist.DefaultLANConfig()
+	if cfg.JoinTimeout > 0 {
+		mlCfg.TCPTimeout = cfg.JoinTimeout
+	}
 	mlCfg.Name = cfg.NodeID
 	mlCfg.BindAddr = cfg.BindAddr
 	mlCfg.BindPort = cfg.BindPort
@@ -128,6 +132,10 @@ func New(cfg Config, log *slog.Logger) (*Cluster, error) {
 		n, err := ml.Join(seeds)
 		if err != nil {
 			log.Warn("cluster: join failed, running standalone", "seeds", seeds, "err", err)
+			log.Warn("cluster: troubleshoot: check that the seed node is running, the gossip port is open, and the machines can reach each other", "port", cfg.BindPort)
+			if cfg.AdvertiseAddr == "" {
+				log.Warn("cluster: if this node is behind NAT (WSL/Docker), set network.advertise to its LAN-reachable IP")
+			}
 		} else {
 			log.Info("cluster: joined", "contacted", n, "members", ml.NumMembers())
 		}
@@ -232,6 +240,7 @@ func ConfigFromNode(nodeID string, nodeCfg config.NodeConfig, netCfg config.Netw
 		Discovery:     clusterCfg.Discovery,
 		ClusterName:   clusterCfg.Name,
 		JoinToken:     joinToken,
+		JoinTimeout:   clusterCfg.JoinTimeout,
 	}
 }
 

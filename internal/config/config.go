@@ -47,9 +47,10 @@ type ClientConfig struct {
 }
 
 type ClusterConfig struct {
-	Discovery string   `yaml:"discovery"`
-	Seeds     []string `yaml:"seeds"`
-	Name      string   `yaml:"name"`
+	Discovery   string        `yaml:"discovery"`
+	Seeds       []string      `yaml:"seeds"`
+	Name        string        `yaml:"name"`
+	JoinTimeout time.Duration `yaml:"join_timeout"` // timeout for initial cluster join (default 10s)
 }
 
 type StorageConfig struct {
