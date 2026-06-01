@@ -266,6 +266,17 @@ go build -o ziggurat ./cmd/ziggurat
 go build -ldflags "-X main.version=0.1.0 -X main.commit=$(git rev-parse --short HEAD)" -o ziggurat ./cmd/ziggurat
 ```
 
+Or use the Makefile (injects version/commit automatically):
+
+```bash
+make build              # build for the host OS (ziggurat, or ziggurat.exe on Windows)
+make install            # build and copy to ~/.local/bin (%USERPROFILE%\.local\bin on Windows)
+make windows            # cross-compile ziggurat.exe for Windows amd64
+```
+
+The Makefile works both under a POSIX shell (Linux, macOS, Git Bash/MSYS2) and under
+`cmd.exe`/PowerShell on Windows. FUSE `mount` is excluded from Windows builds.
+
 Requires Go 1.24+. No CGo dependencies.
 
 ## Testing

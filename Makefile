@@ -4,17 +4,29 @@
 
 BINARY := ziggurat
 
-# Use USERPROFILE on Windows (PowerShell), HOME on Unix.
+# Platform/shell detection. On Windows, make may run under cmd.exe (when invoked
+# from PowerShell/cmd with no POSIX sh on PATH) or under a POSIX shell (Git Bash /
+# MSYS2). These need different commands, path separators, and null device.
 ifeq ($(OS),Windows_NT)
-  INSTALL_DIR := $(USERPROFILE)/.local/bin
   BINARY_EXT := .exe
+  ifeq (,$(findstring sh,$(notdir $(SHELL))))
+    # cmd.exe: native builtins, backslash paths, NUL device.
+    WIN_CMD := 1
+    INSTALL_DIR := $(USERPROFILE)\.local\bin
+    DEVNULL := NUL
+  else
+    # POSIX shell on Windows (Git Bash / MSYS2).
+    INSTALL_DIR := $(USERPROFILE)/.local/bin
+    DEVNULL := /dev/null
+  endif
 else
-  INSTALL_DIR := $(HOME)/.local/bin
   BINARY_EXT :=
+  INSTALL_DIR := $(HOME)/.local/bin
+  DEVNULL := /dev/null
 endif
 
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+VERSION ?= $(shell git describe --tags --always --dirty 2>$(DEVNULL) || echo dev)
+COMMIT  ?= $(shell git rev-parse --short HEAD 2>$(DEVNULL) || echo unknown)
 LDFLAGS := -ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT)"
 
 .PHONY: build install test test-race coverage fmt vet lint tidy proto clean windows help
@@ -23,9 +35,15 @@ build:
 	go build $(LDFLAGS) -o $(BINARY)$(BINARY_EXT) ./cmd/ziggurat/
 
 install: build
-	-mkdir -p $(INSTALL_DIR)
-	cp $(BINARY)$(BINARY_EXT) $(INSTALL_DIR)/
+ifdef WIN_CMD
+	@if not exist "$(INSTALL_DIR)" mkdir "$(INSTALL_DIR)"
+	copy /Y "$(BINARY)$(BINARY_EXT)" "$(INSTALL_DIR)"
 	@echo Installed $(BINARY)$(BINARY_EXT) to $(INSTALL_DIR)
+else
+	mkdir -p "$(INSTALL_DIR)"
+	cp "$(BINARY)$(BINARY_EXT)" "$(INSTALL_DIR)/"
+	@echo Installed $(BINARY)$(BINARY_EXT) to $(INSTALL_DIR)
+endif
 
 test:
 	go test ./... $(ARGS)
@@ -66,9 +84,17 @@ windows:
 	GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o $(BINARY).exe ./cmd/ziggurat/
 
 clean:
+ifdef WIN_CMD
+	@if exist "$(BINARY)" del /q "$(BINARY)"
+	@if exist "$(BINARY).exe" del /q "$(BINARY).exe"
+	@if exist coverage.out del /q coverage.out
+	@if exist coverage.html del /q coverage.html
+	go clean
+else
 	rm -f $(BINARY) $(BINARY).exe
 	rm -f coverage.out coverage.html
 	go clean
+endif
 
 help:
 	@echo "Usage: make [target] [ARGS=...]"
