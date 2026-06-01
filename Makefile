@@ -3,7 +3,16 @@
 # Cross-compile for Windows: make windows
 
 BINARY := ziggurat
-INSTALL_DIR := $(HOME)/.local/bin
+
+# Use USERPROFILE on Windows (PowerShell), HOME on Unix.
+ifeq ($(OS),Windows_NT)
+  INSTALL_DIR := $(USERPROFILE)/.local/bin
+  BINARY_EXT := .exe
+else
+  INSTALL_DIR := $(HOME)/.local/bin
+  BINARY_EXT :=
+endif
+
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 LDFLAGS := -ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT)"
@@ -11,12 +20,12 @@ LDFLAGS := -ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT)"
 .PHONY: build install test test-race coverage fmt vet lint tidy proto clean windows help
 
 build:
-	go build $(LDFLAGS) -o $(BINARY) ./cmd/ziggurat/
+	go build $(LDFLAGS) -o $(BINARY)$(BINARY_EXT) ./cmd/ziggurat/
 
 install: build
-	@mkdir -p $(INSTALL_DIR)
-	cp $(BINARY) $(INSTALL_DIR)/
-	@echo "Installed $(BINARY) to $(INSTALL_DIR)"
+	@if [ ! -d "$(INSTALL_DIR)" ]; then mkdir -p "$(INSTALL_DIR)"; fi
+	cp $(BINARY)$(BINARY_EXT) "$(INSTALL_DIR)/"
+	@echo "Installed $(BINARY)$(BINARY_EXT) to $(INSTALL_DIR)"
 
 test:
 	go test ./... $(ARGS)
