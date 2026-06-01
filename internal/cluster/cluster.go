@@ -229,11 +229,23 @@ func ConfigFromNode(nodeID string, nodeCfg config.NodeConfig, netCfg config.Netw
 		gossipPort = 7102
 	}
 
+	// Auto-detect LAN-reachable advertise address from seed list.
+	// When running behind NAT (WSL2, Docker, VPN), the default
+	// auto-detected IP is often a virtual bridge address that other
+	// machines cannot reach. Use the egress interface for the first
+	// seed to find the correct LAN IP.
+	advertiseAddr := netCfg.Advertise
+	if advertiseAddr == "" && len(clusterCfg.Seeds) > 0 {
+		if detected := detectEgressAddr(clusterCfg.Seeds[0]); detected != "" {
+			advertiseAddr = detected
+		}
+	}
+
 	return Config{
 		NodeID:        nodeID,
 		NodeName:      nodeCfg.Name,
 		BindAddr:      bindAddr,
-		AdvertiseAddr: netCfg.Advertise,
+		AdvertiseAddr: advertiseAddr,
 		BindPort:      gossipPort,
 		HTTPPort:      netCfg.HTTPPort,
 		GRPCPort:      netCfg.GRPCPort,
@@ -266,4 +278,23 @@ type slogWriter struct {
 func (w *slogWriter) Write(p []byte) (n int, err error) {
 	w.log.Debug(string(p))
 	return len(p), nil
+}
+
+// detectEgressAddr determines the local IP address that would be used to
+// reach the given seed address. This avoids advertising WSL2/Docker/VPN
+// bridge addresses when the node is behind NAT. Returns empty string on
+// failure (caller falls back to auto-detection).
+func detectEgressAddr(seed string) string {
+	host, _, err := net.SplitHostPort(seed)
+	if err != nil {
+		host = seed
+	}
+	// Use a UDP "connection" to probe the route without sending packets.
+	conn, err := net.Dial("udp", net.JoinHostPort(host, "1"))
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+	addr := conn.LocalAddr().(*net.UDPAddr)
+	return addr.IP.String()
 }
