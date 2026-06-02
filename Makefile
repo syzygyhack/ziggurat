@@ -4,12 +4,19 @@
 
 BINARY := ziggurat
 
-# Platform/shell detection. On Windows, make may run under cmd.exe (when invoked
-# from PowerShell/cmd with no POSIX sh on PATH) or under a POSIX shell (Git Bash /
-# MSYS2). These need different commands, path separators, and null device.
+# Platform/shell detection. On Windows, make runs recipes through cmd.exe
+# (when invoked from PowerShell/cmd with no POSIX sh on PATH) or through a POSIX
+# shell (Git Bash / MSYS2); each needs different commands, path separators, and
+# null device. $(SHELL) is NOT a reliable indicator here — it defaults to
+# /bin/sh even when make actually uses cmd.exe. Instead we probe the real recipe
+# shell, which $(shell ...) shares: cmd.exe's echo preserves the quotes, while a
+# POSIX shell strips them.
 ifeq ($(OS),Windows_NT)
   BINARY_EXT := .exe
-  ifeq (,$(findstring sh,$(notdir $(SHELL))))
+  # cmd.exe echo keeps the quotes (output: "probe"); a POSIX shell strips them
+  # (output: probe). Test for the quote character rather than exact equality so
+  # a trailing CR from cmd.exe doesn't throw off the comparison.
+  ifneq (,$(findstring ",$(shell echo "probe")))
     # cmd.exe: native builtins, backslash paths, NUL device.
     WIN_CMD := 1
     INSTALL_DIR := $(USERPROFILE)\.local\bin
