@@ -3,9 +3,16 @@
 package node
 
 import (
+	"runtime"
 	"syscall"
 	"unsafe"
 )
+
+// detectCPUCores returns the logical CPU count. Windows has no cgroup-style
+// quota mechanism, so this is simply the host's logical CPU count.
+func detectCPUCores() int {
+	return runtime.NumCPU()
+}
 
 var (
 	kernel32              = syscall.NewLazyDLL("kernel32.dll")

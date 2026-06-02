@@ -24,7 +24,7 @@ func DetectCapabilities(dataDir string) map[string]string {
 	// Always available.
 	caps["os"] = runtime.GOOS
 	caps["arch"] = runtime.GOARCH
-	caps["cpu.cores"] = strconv.Itoa(runtime.NumCPU())
+	caps["cpu.cores"] = strconv.Itoa(detectCPUCores())
 
 	if h, err := os.Hostname(); err == nil {
 		caps["hostname"] = h
