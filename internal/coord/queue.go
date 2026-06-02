@@ -84,6 +84,9 @@ func (q *Queue) Pop(tags []string, caps map[string]string, filters ...func(*mode
 		if !matchesResources(entry.task.Resources, caps) {
 			continue
 		}
+		if !matchesRuntime(entry.task, caps) {
+			continue
+		}
 		if !applyFilters(entry.task, filters) {
 			continue
 		}
@@ -129,7 +132,8 @@ func (q *Queue) PopForRemote(localTags []string, localCaps map[string]string, pr
 	for i, entry := range q.heap {
 		localMatch := matchesTags(entry.task.Requires, tagSet) &&
 			evalCachedConstraints(entry.constraints, localCaps) &&
-			matchesResources(entry.task.Resources, localCaps)
+			matchesResources(entry.task.Resources, localCaps) &&
+			matchesRuntime(entry.task, localCaps)
 		// Skip tasks the local worker can run, unless affinity pins them to a
 		// remote node that currently has capacity.
 		if localMatch && (prefersRemote == nil || !prefersRemote(entry.task)) {
@@ -178,6 +182,16 @@ func (q *Queue) Len() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	return q.heap.Len()
+}
+
+// matchesRuntime returns false when a task requires a container runtime (it
+// specifies an OCI Image) but the node advertises none — so image tasks are
+// never routed to nodes that can't execute them.
+func matchesRuntime(t *model.Task, caps map[string]string) bool {
+	if t.Image == "" {
+		return true
+	}
+	return caps["container.runtime"] != ""
 }
 
 func matchesTags(requires []string, tags map[string]bool) bool {

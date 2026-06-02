@@ -49,6 +49,12 @@ func DetectCapabilities(dataDir string) map[string]string {
 		}
 	}
 
+	// Container runtime detection, so OCI image tasks route only to nodes that
+	// can actually run them (rather than failing at execution).
+	if rt := detectContainerRuntime(); rt != "" {
+		caps["container.runtime"] = rt
+	}
+
 	// GPU detection via nvidia-smi (best-effort).
 	detectNvidiaGPU(caps)
 
@@ -140,6 +146,17 @@ func MergeCapabilities(detected, configured map[string]string) map[string]string
 		merged[k] = v
 	}
 	return merged
+}
+
+// detectContainerRuntime returns the available OCI runtime ("podman" preferred,
+// then "docker"), or "" if none is installed. Mirrors the worker's selection.
+func detectContainerRuntime() string {
+	for _, bin := range []string{"podman", "docker"} {
+		if _, err := exec.LookPath(bin); err == nil {
+			return bin
+		}
+	}
+	return ""
 }
 
 // detectNvidiaGPU probes nvidia-smi for GPU information.

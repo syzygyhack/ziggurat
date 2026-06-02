@@ -303,6 +303,9 @@ func (d *Dispatcher) buildCandidates(task *model.Task) []scheduler.Candidate {
 		if !matchesResources(task.Resources, n.Capabilities) {
 			continue
 		}
+		if !matchesRuntime(task, n.Capabilities) {
+			continue
+		}
 		c := scheduler.Candidate{
 			NodeID: n.ID,
 			Tags:   n.Tags,

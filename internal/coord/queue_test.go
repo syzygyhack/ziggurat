@@ -179,3 +179,21 @@ func TestQueue_GPUResourceMatching(t *testing.T) {
 		t.Fatalf("expected needs-gpu task, got %v", got)
 	}
 }
+
+func TestMatchesRuntime(t *testing.T) {
+	plain := &model.Task{Command: []string{"echo", "hi"}}
+	imageTask := &model.Task{Command: []string{"run"}, Image: "docker.io/library/python:3.12"}
+
+	withRT := map[string]string{"container.runtime": "podman"}
+	noRT := map[string]string{"os": "linux"}
+
+	if !matchesRuntime(plain, noRT) {
+		t.Error("plain task should match a node with no container runtime")
+	}
+	if !matchesRuntime(imageTask, withRT) {
+		t.Error("image task should match a node with a container runtime")
+	}
+	if matchesRuntime(imageTask, noRT) {
+		t.Error("image task must NOT match a node without a container runtime")
+	}
+}
