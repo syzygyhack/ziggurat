@@ -21,12 +21,55 @@ type MDNSConfig struct {
 	NodeID      string
 	GossipPort  int
 	ClusterName string // empty defaults to "default"
+	AdvertiseIP string // LAN IP to advertise and pin multicast to (optional)
 }
 
 // MDNSDiscoverConfig configures mDNS peer discovery.
 type MDNSDiscoverConfig struct {
 	ClusterName string        // filter to this cluster; empty defaults to "default"
 	Timeout     time.Duration // how long to listen for responses
+	AdvertiseIP string        // pin multicast queries to this IP's interface (optional)
+}
+
+// ifaceName returns the interface name for logging, or "default" if nil.
+func ifaceName(i *net.Interface) string {
+	if i == nil {
+		return "default"
+	}
+	return i.Name
+}
+
+// interfaceForIP returns the network interface that owns the given IP, or nil
+// if none matches. Used to pin mDNS multicast to the LAN interface on
+// multi-homed hosts (so it isn't bound to a virtual adapter).
+func interfaceForIP(ipStr string) *net.Interface {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return nil
+	}
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+	for i := range ifaces {
+		addrs, err := ifaces[i].Addrs()
+		if err != nil {
+			continue
+		}
+		for _, a := range addrs {
+			var aip net.IP
+			switch v := a.(type) {
+			case *net.IPNet:
+				aip = v.IP
+			case *net.IPAddr:
+				aip = v.IP
+			}
+			if aip != nil && aip.Equal(ip) {
+				return &ifaces[i]
+			}
+		}
+	}
+	return nil
 }
 
 // DiscoveredPeer is a gossip endpoint found via mDNS.
@@ -62,25 +105,37 @@ func NewMDNSServer(cfg MDNSConfig, log *slog.Logger) (*MDNSServer, error) {
 	// TXT record carries cluster name for filtering during discovery.
 	txt := []string{fmt.Sprintf("cluster=%s", clusterName)}
 
+	// Advertise only the LAN IP (not every interface's address) and pin the
+	// multicast listener to that interface, so peers on other machines receive
+	// a reachable address and our responses go out the LAN interface.
+	var ips []net.IP
+	var iface *net.Interface
+	if cfg.AdvertiseIP != "" {
+		if ip := net.ParseIP(cfg.AdvertiseIP); ip != nil {
+			ips = []net.IP{ip}
+		}
+		iface = interfaceForIP(cfg.AdvertiseIP)
+	}
+
 	service, err := mdns.NewMDNSService(
 		instance,
 		mdnsService,
 		mdnsDomain,
-		"",            // host — empty = auto-detect
+		"", // host — empty = auto-detect
 		cfg.GossipPort,
-		nil, // IPs — nil = all interfaces
+		ips, // nil = all interfaces; set = advertise only the LAN IP
 		txt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create mDNS service: %w", err)
 	}
 
-	server, err := mdns.NewServer(&mdns.Config{Zone: service})
+	server, err := mdns.NewServer(&mdns.Config{Zone: service, Iface: iface})
 	if err != nil {
 		return nil, fmt.Errorf("start mDNS server: %w", err)
 	}
 
-	log.Info("mDNS: advertising", "service", mdnsService, "port", cfg.GossipPort, "cluster", clusterName)
+	log.Info("mDNS: advertising", "service", mdnsService, "port", cfg.GossipPort, "cluster", clusterName, "iface", ifaceName(iface))
 	return &MDNSServer{server: server}, nil
 }
 
@@ -130,6 +185,7 @@ func DiscoverPeers(cfg MDNSDiscoverConfig, log *slog.Logger) ([]DiscoveredPeer, 
 		Timeout:             timeout,
 		Entries:             entries,
 		WantUnicastResponse: false,
+		Interface:           interfaceForIP(cfg.AdvertiseIP), // pin to LAN iface (nil = default)
 	}
 
 	queryErr := mdns.Query(params)

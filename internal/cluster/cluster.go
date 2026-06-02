@@ -116,6 +116,15 @@ func New(cfg Config, log *slog.Logger) (*Cluster, error) {
 		}
 	}
 
+	// Address the node advertises to peers. mDNS pins its multicast to the
+	// interface that owns this address (and advertises only this IP), so on a
+	// multi-homed host discovery goes out the LAN interface rather than a
+	// virtual adapter.
+	advertiseIP := cfg.AdvertiseAddr
+	if advertiseIP == "" {
+		advertiseIP = ml.LocalNode().Addr.String()
+	}
+
 	c := &Cluster{
 		ml:       ml,
 		Registry: registry,
@@ -138,6 +147,7 @@ func New(cfg Config, log *slog.Logger) (*Cluster, error) {
 		discovered, err := DiscoverAddrs(MDNSDiscoverConfig{
 			ClusterName: clusterName,
 			Timeout:     3 * time.Second,
+			AdvertiseIP: advertiseIP,
 		}, log)
 		if err != nil {
 			log.Debug("cluster: mDNS discovery failed", "err", err)
@@ -182,6 +192,7 @@ func New(cfg Config, log *slog.Logger) (*Cluster, error) {
 			NodeID:      cfg.NodeID,
 			GossipPort:  gossipPort,
 			ClusterName: clusterName,
+			AdvertiseIP: advertiseIP,
 		}, log)
 		if err != nil {
 			log.Warn("cluster: mDNS advertisement failed", "err", err)
