@@ -52,6 +52,7 @@ func (s *Server) submitTask(w http.ResponseWriter, r *http.Request) {
 		Requires:    req.Requires,
 		Constraints: req.Constraints,
 		Resources:   req.Resources,
+		Image:       req.Image,
 		Environment: req.Environment,
 		Config:      req.Config,
 	}
@@ -106,6 +107,7 @@ func (s *Server) submitBatch(w http.ResponseWriter, r *http.Request) {
 			Requires:    req.Requires,
 			Constraints: req.Constraints,
 			Resources:   req.Resources,
+			Image:       req.Image,
 			Environment: req.Environment,
 			Config:      req.Config,
 		}

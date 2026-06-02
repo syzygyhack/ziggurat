@@ -24,6 +24,10 @@ func newBatchCmd() *cobra.Command {
 }
 
 // batchTask mirrors the API submitTaskRequest. YAML/JSON fields match the API.
+// resources/environment/config are passthrough maps: write the same field names
+// the API expects (e.g. resources.cpu_cores, resources.gpus) and they are
+// forwarded verbatim. Using maps (rather than json.RawMessage) lets both YAML
+// and JSON batch files express nested objects.
 type batchTask struct {
 	Command     []string          `yaml:"command" json:"command"`
 	Env         map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
@@ -33,7 +37,9 @@ type batchTask struct {
 	Requires    []string          `yaml:"requires,omitempty" json:"requires,omitempty"`
 	Constraints []string          `yaml:"constraints,omitempty" json:"constraints,omitempty"`
 	Image       string            `yaml:"image,omitempty" json:"image,omitempty"`
-	Config      json.RawMessage   `yaml:"config,omitempty" json:"config,omitempty"`
+	Resources   map[string]any    `yaml:"resources,omitempty" json:"resources,omitempty"`
+	Environment map[string]any    `yaml:"environment,omitempty" json:"environment,omitempty"`
+	Config      map[string]any    `yaml:"config,omitempty" json:"config,omitempty"`
 }
 
 func runBatch(cmd *cobra.Command, args []string) error {

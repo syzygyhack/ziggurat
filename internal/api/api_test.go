@@ -441,3 +441,49 @@ func TestAPI_Drain(t *testing.T) {
 		t.Fatalf("expected draining status, got %v", result["status"])
 	}
 }
+
+// Regression: the API must propagate image, resources, and environment into
+// the task (they were previously dropped, silently degrading container/GPU/env
+// tasks into plain host tasks).
+func TestAPI_SubmitTask_PropagatesImageResourcesEnv(t *testing.T) {
+	ts := testServer(t)
+	resp := postJSON(t, ts.URL+"/api/v1/tasks", map[string]any{
+		"command":     []string{"echo", "hi"},
+		"image":       "docker.io/library/python:3.12",
+		"resources":   map[string]any{"cpu_cores": 2, "gpus": 1, "memory": 1 << 30},
+		"environment": map[string]any{"name": "venv1"},
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+	var task model.Task
+	decodeJSON(t, resp, &task)
+	if task.Image != "docker.io/library/python:3.12" {
+		t.Errorf("image not propagated: %q", task.Image)
+	}
+	if task.Resources.CPUCores != 2 || task.Resources.GPUs != 1 || task.Resources.Memory != 1<<30 {
+		t.Errorf("resources not propagated: %+v", task.Resources)
+	}
+	if task.Environment == nil || task.Environment.Name != "venv1" {
+		t.Errorf("environment not propagated: %+v", task.Environment)
+	}
+}
+
+func TestAPI_SubmitBatch_PropagatesImageAndResources(t *testing.T) {
+	ts := testServer(t)
+	resp := postJSON(t, ts.URL+"/api/v1/tasks/batch", []map[string]any{
+		{"command": []string{"echo", "a"}, "image": "img:1", "resources": map[string]any{"gpus": 1}},
+		{"command": []string{"echo", "b"}},
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+	var tasks []model.Task
+	decodeJSON(t, resp, &tasks)
+	if len(tasks) != 2 {
+		t.Fatalf("expected 2 tasks, got %d", len(tasks))
+	}
+	if tasks[0].Image != "img:1" || tasks[0].Resources.GPUs != 1 {
+		t.Errorf("batch did not propagate image/resources: image=%q res=%+v", tasks[0].Image, tasks[0].Resources)
+	}
+}

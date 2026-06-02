@@ -107,6 +107,10 @@ func runRun(cmd *cobra.Command, args []string) error {
 		body["constraints"] = runConstraints
 	}
 
+	if runImage != "" {
+		body["image"] = runImage
+	}
+
 
 	// Build environment sub-object.
 	if runEnvSetup != "" && runEnv == "" && len(runEnvFingerprint) == 0 {
