@@ -37,7 +37,8 @@ COMMIT  ?= $(shell git rev-parse --short HEAD 2>$(DEVNULL) || echo unknown)
 VERSION_PKG := github.com/syzygyhack/ziggurat/internal/version
 LDFLAGS := -ldflags "-X $(VERSION_PKG).Version=$(VERSION) -X $(VERSION_PKG).Commit=$(COMMIT)"
 
-.PHONY: build install test test-race coverage fmt vet lint tidy proto clean windows help
+.PHONY: build install test test-race coverage fmt vet lint tidy proto clean windows \
+	dist dist-linux-amd64 dist-linux-arm64 dist-darwin-arm64 dist-windows-amd64 help
 
 build:
 	go build $(LDFLAGS) -o $(BINARY)$(BINARY_EXT) ./cmd/ziggurat/
@@ -94,6 +95,28 @@ proto:
 
 windows:
 	GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o $(BINARY).exe ./cmd/ziggurat/
+
+# Cross-compile release binaries for all supported targets into dist/.
+# Intended for a POSIX/CI host (the GitHub Actions release matrix uses the same
+# GOOS/GOARCH set). No CGo, so cross-compilation is pure `go build`.
+DIST := dist
+dist: dist-linux-amd64 dist-linux-arm64 dist-darwin-arm64 dist-windows-amd64
+
+dist-linux-amd64:
+	@mkdir -p $(DIST)
+	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(DIST)/$(BINARY)-linux-amd64 ./cmd/ziggurat/
+
+dist-linux-arm64:
+	@mkdir -p $(DIST)
+	GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o $(DIST)/$(BINARY)-linux-arm64 ./cmd/ziggurat/
+
+dist-darwin-arm64:
+	@mkdir -p $(DIST)
+	GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o $(DIST)/$(BINARY)-darwin-arm64 ./cmd/ziggurat/
+
+dist-windows-amd64:
+	@mkdir -p $(DIST)
+	GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o $(DIST)/$(BINARY)-windows-amd64.exe ./cmd/ziggurat/
 
 clean:
 ifdef WIN_CMD

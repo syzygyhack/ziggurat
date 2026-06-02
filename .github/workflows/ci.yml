@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (vet + race)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l $(git ls-files '*.go' | grep -v '/pb/'))
+          if [ -n "$unformatted" ]; then echo "gofmt needed:"; echo "$unformatted"; exit 1; fi
+      - name: vet
+        run: go vet ./...
+      - name: test
+        run: go test ./...
+      - name: race (scheduling + concurrency hot paths)
+        run: go test -race ./internal/cluster/ ./internal/api/ ./internal/coord/ ./internal/node/
+
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64, ext: "" }
+          - { goos: linux, goarch: arm64, ext: "" }
+          - { goos: darwin, goarch: arm64, ext: "" }
+          - { goos: windows, goarch: amd64, ext: ".exe" }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tags, so `git describe` produces a real version
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo dev)
+          COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
+          PKG=github.com/syzygyhack/ziggurat/internal/version
+          mkdir -p dist
+          go build -ldflags "-X $PKG.Version=$VERSION -X $PKG.Commit=$COMMIT" \
+            -o "dist/ziggurat-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}" ./cmd/ziggurat/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ziggurat-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error

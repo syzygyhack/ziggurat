@@ -1419,69 +1419,17 @@ ziggurat start --join auto --token $(cat cluster.token)
 | Membership | hashicorp/memberlist (SWIM) | Battle-tested, LAN + WAN |
 | Erasure coding | klauspost/reedsolomon | Pure Go, fast, well-maintained |
 | Hashing | zeebo/blake3 | Fast, cryptographic, SIMD-accelerated |
-| HTTP | net/http + chi | Consistent with Syzygy stack |
+| HTTP | net/http + chi | Lightweight, idiomatic router |
 | Serialization | protobuf (gRPC native) | Efficient, typed |
 | Metrics | prometheus/client_golang | Standard |
-| Config | YAML (gopkg.in/yaml.v3) | Consistent with Syzygy tools |
-| CLI | cobra | Consistent with Cardinal, Anza, Guillotine |
+| Config | YAML (gopkg.in/yaml.v3) | Human-friendly, ubiquitous |
+| CLI | cobra | De-facto standard Go CLI framework |
 | Metadata DB | go.etcd.io/bbolt | Embedded, crash-safe, zero dependencies |
 | Logging | log/slog (stdlib) | Structured, leveled, zero dependencies |
-| UUID | github.com/google/uuid | Consistent with Cardinal |
+| UUID | github.com/google/uuid | Standard |
 
 ---
 
-## Syzygy Integration
-
-### Research Plane
-
-Ziggurat is the compute backend for the Research Plane. Research scripts and binaries live in Ziggurat storage; tasks reference them as artifacts:
-
-```
-Prediction Engine:
-  ziggurat run python3 rg_evolve.py --artifact scripts/rg_evolve.py \
-    --input coefficients=datasets/fhuft-v3 --param scale=mZ
-  ziggurat run ./class --artifact bin/class --input ini=configs/fhuft-ede.ini
-
-Validation Framework:
-  ziggurat run python3 chi2_fit.py --artifact scripts/chi2_fit.py \
-    --input predictions=results/ew-predictions --input data=datasets/pdg-2024
-
-IG Toolkit:
-  ziggurat run python3 geodesic_opt.py --artifact scripts/geodesic_opt.py \
-    --input manifold=datasets/fisher-manifold --require cuda
-```
-
-The Prediction Engine can submit entire pipeline definitions for multi-stage workloads (fetch data → compute → validate → report) as a single pipeline YAML.
-
-### Development Plane
-
-Optional integration for parallelizable dev tasks:
-
-```
-Guillotine: Distribute benchmark runs across machines
-  ziggurat run guillotine run --provider anthropic --suite essentials \
-    --artifact bin/guillotine
-
-Cardinal: Parallel Avril sessions on different nodes (future)
-```
-
-### Runtime Stack
-
-Halcyon applications can offload expensive compute to Ziggurat:
-
-```go
-func handleSimulation(w http.ResponseWriter, r *http.Request) {
-    ref, _ := zigguratClient.Store.Put(ctx, "sim/input/"+reqID, inputData)
-    task, _ := zigguratClient.Run(ctx, &ziggurat.TaskOpts{
-        Command:   []string{"python3", "simulate.py"},
-        Artifacts: []string{"scripts/simulate.py"},
-        Inputs:    map[string]string{"data": ref},
-    })
-    halcyon.OK(w, map[string]string{"task_id": task.ID})
-}
-```
-
----
 
 ## On-Disk Persistence
 

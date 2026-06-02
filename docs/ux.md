@@ -2,12 +2,12 @@
 
 ## Design Principles
 
-Drawn from the Anza control-plane pattern, adapted for a networked compute mesh:
+Principles for a CLI over a networked compute mesh:
 
 1. **Status is the front door.** `ziggurat status` is the first thing you run. It answers "what's happening in my cluster?" in one screen.
 2. **Summary first, drill to detail.** Every list command shows a scannable overview. Pass an ID or name to get the full picture.
 3. **`--json` everywhere.** Every command that produces output supports `--json` for scripting and piping.
-4. **`--node` for targeting.** Like Anza's `--project`, any command that can be scoped to a single node accepts `--node <name-or-id>`.
+4. **`--node` for targeting.** Any command that can be scoped to a single node accepts `--node <name-or-id>`.
 5. **Human output is opinionated.** Columns are aligned, status is color-coded (when TTY), output fits 80 columns. JSON output is the escape hatch for custom formatting.
 6. **One binary, two roles.** `ziggurat start` runs a node. Every other command is a client that talks to the cluster over HTTP. No separate "admin" binary.
 
@@ -491,30 +491,6 @@ $ ziggurat status gpu-workstation     # same detail view
 
 ---
 
-## Anza Integration
-
-Ziggurat nodes are projects in the Anza sense -- each has a `data_dir` with state.
-But the primary integration path is **Anza reading Ziggurat's health endpoint**,
-not scanning files.
-
-Future: `anza` could learn a `ziggurat` scanner that calls `GET /api/v1/health`
-on a configured Ziggurat cluster and surfaces cluster health in the cross-project
-status view:
-
-```
-$ anza status
-
-Active:
-  virc         cardinal executing  12/18 tasks      "Build chat system"
-  ziggurat     cluster healthy     4 nodes, 7 tasks  3 queued
-
-Idle:
-  phobos, runelite
-```
-
-This is out of scope for Ziggurat itself but documents the integration seam.
-
----
 
 ## Phase Mapping
 

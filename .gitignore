@@ -1,6 +1,7 @@
 # Binary
 /ziggurat
 /ziggurat.exe
+/dist/
 
 # Vendor
 /vendor
@@ -16,11 +17,9 @@
 .DS_Store
 Thumbs.db
 
-# Tool state
+# Local agent / editor state
 .avril/
-.cardinal/
 .claude/
-.xtal/
 
 # Data
 *.db

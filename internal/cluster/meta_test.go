@@ -15,7 +15,7 @@ func sampleMeta() *NodeMeta {
 		ClusterName: "default",
 		TokenHMAC:   "0000000000000000000000000000000000000000000000000000000000000000",
 		Caps: map[string]string{
-			"os": "windows", "arch": "amd64", "cpu.cores": "16", "hostname": "Maomao",
+			"os": "windows", "arch": "amd64", "cpu.cores": "16", "hostname": "node-a",
 			"mem.total": "68603351040", "disk.avail": "22020493312", "storage.class": "ssd",
 			"compute.concurrency": "16", "gpu.count": "1", "gpu.cuda": "12.8",
 			"gpu.driver": "591.86", "gpu.model": "NVIDIA GeForce RTX 4090 D", "gpu.vram": "51527024640",
