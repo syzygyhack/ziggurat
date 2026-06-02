@@ -1,6 +1,7 @@
 package node
 
 import (
+	"github.com/syzygyhack/ziggurat/internal/config"
 	"runtime"
 	"strconv"
 	"testing"
@@ -165,5 +166,44 @@ func TestParseROCmCSV(t *testing.T) {
 	}
 	if devices[0].vram != 68702699520 {
 		t.Errorf("vram = %d, want 68702699520", devices[0].vram)
+	}
+}
+
+func TestExtractProbeValue(t *testing.T) {
+	if got := extractProbeValue("ffmpeg version 4.4.2-0ubuntu0\n...", true); got != "4.4.2" {
+		t.Errorf("version mode = %q, want 4.4.2", got)
+	}
+	if got := extractProbeValue("2.1.0\n", false); got != "2.1.0" {
+		t.Errorf("line mode = %q, want 2.1.0", got)
+	}
+	if got := extractProbeValue("\n\n  hello world  \n", false); got != "hello world" {
+		t.Errorf("line mode trim = %q, want 'hello world'", got)
+	}
+	if got := extractProbeValue("", false); got != "" {
+		t.Errorf("empty = %q, want empty", got)
+	}
+}
+
+func TestRunCapabilityProbes(t *testing.T) {
+	caps := map[string]string{}
+	RunCapabilityProbes([]config.CapabilityProbe{
+		{Capability: "echo.fact", Command: []string{"echo", "present"}},
+		{Capability: "ver.fact", Command: []string{"echo", "tool 2.5.1"}, Version: true},
+		{Capability: "skip.empty", Command: nil},                                           // skipped: no command
+		{Capability: "", Command: []string{"echo", "x"}},                                   // skipped: no cap key
+		{Capability: "missing.bin", Command: []string{"definitely-not-a-real-binary-xyz"}}, // skipped: fails
+	}, caps)
+
+	if caps["echo.fact"] != "present" {
+		t.Errorf("echo.fact = %q, want present", caps["echo.fact"])
+	}
+	if caps["ver.fact"] != "2.5.1" {
+		t.Errorf("ver.fact = %q, want 2.5.1", caps["ver.fact"])
+	}
+	if _, ok := caps["missing.bin"]; ok {
+		t.Error("probe for a missing binary should not set a capability")
+	}
+	if len(caps) != 2 {
+		t.Errorf("expected exactly 2 caps, got %v", caps)
 	}
 }

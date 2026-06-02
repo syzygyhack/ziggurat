@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/syzygyhack/ziggurat/internal/config"
 	"github.com/syzygyhack/ziggurat/internal/util"
 )
 
@@ -130,6 +131,44 @@ func probeRuntimeVersion(bins, args []string) string {
 		cancel()
 		if v := parseRuntimeVersion(string(out)); v != "" {
 			return v
+		}
+	}
+	return ""
+}
+
+// RunCapabilityProbes executes operator-defined probes and records their
+// results as capabilities, so operators can advertise anything the built-in
+// detectors don't cover (installed packages like torch, tools like ffmpeg,
+// custom facts) for capability-based routing. Each probe runs its command with
+// a timeout and stores either the extracted dotted version (Version: true) or
+// the first non-empty output line. Failures and empty output are skipped.
+// Results can still be overridden by static node.capabilities.
+func RunCapabilityProbes(probes []config.CapabilityProbe, caps map[string]string) {
+	for _, p := range probes {
+		if p.Capability == "" || len(p.Command) == 0 {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		out, _ := exec.CommandContext(ctx, p.Command[0], p.Command[1:]...).CombinedOutput()
+		cancel()
+		if v := extractProbeValue(string(out), p.Version); v != "" {
+			caps[p.Capability] = v
+		}
+	}
+}
+
+// extractProbeValue returns the dotted version (when version is true) or the
+// first non-empty trimmed line (capped in length) from a probe's output.
+func extractProbeValue(output string, version bool) string {
+	if version {
+		return parseRuntimeVersion(output)
+	}
+	for _, line := range strings.Split(output, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			if len(line) > 96 {
+				line = line[:96]
+			}
+			return line
 		}
 	}
 	return ""

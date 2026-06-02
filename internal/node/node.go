@@ -173,8 +173,10 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 		log.Warn("task recovery failed", "err", err)
 	}
 
-	// Detect and merge node capabilities.
+	// Detect and merge node capabilities. Order: auto-detected, then
+	// operator-defined probes, then static node.capabilities (final override).
 	caps := DetectCapabilities(dataDir)
+	RunCapabilityProbes(cfg.Node.CapabilityProbes, caps)
 	caps = MergeCapabilities(caps, cfg.Node.Capabilities)
 	// Advertise this node's task concurrency limit so remote coordinators
 	// score its load against its own capacity, not theirs. Set unconditionally

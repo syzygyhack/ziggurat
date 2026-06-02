@@ -124,13 +124,30 @@ Each node advertises **capabilities** — auto-detected facts plus operator-decl
 
 | Capability | Example | Source |
 |------------|---------|--------|
-| `os`, `arch`, `cpu.cores` | `linux`, `amd64`, `24` | runtime |
-| `mem.total`, `disk.avail`, `storage.class` | bytes; `ssd` | OS probes |
-| `gpu.count`, `gpu.model`, `gpu.vram`, `gpu.cuda`, `gpu.driver` | `1`, `NVIDIA GeForce RTX 4090 D`, … | `nvidia-smi` / `nvcc` |
+| `os`, `arch`, `cpu.cores` | `linux`, `amd64`, `24` | runtime (`cpu.cores` honors cgroup CPU quota) |
+| `mem.total`, `disk.avail`, `storage.class` | bytes; `ssd` | OS probes (`mem.total` honors cgroup limit) |
+| `gpu.count`, `gpu.vram`, `gpu.vram.max`, `gpu.model`, `gpu.vendor`, `gpu.cuda`, `gpu.driver` | `2`, total bytes, largest-device bytes, `NVIDIA …`, `nvidia` | `nvidia-smi`/`nvcc`; AMD `rocm-smi`, Intel `xpu-smi` (best-effort) |
+| `gpu.<i>.model`, `gpu.<i>.vram` | per-device | as above |
+| `container.runtime` | `podman` / `docker` | `PATH` lookup |
 | `compute.concurrency` | `16` | task slots |
 | `python.version`, `node.version`, `go.version`, `java.version`, `ruby.version`, `rust.version` | `3.12.1`, `20.11.0`, … | runtime `--version` probes |
 
-Operator-declared `node.tags` and `node.capabilities` are merged in and **override** auto-detected values for the same key.
+`gpu.vram` is the **sum** across devices; use `gpu.vram.max` (largest single device) to require one GPU big enough for a job, e.g. `--constraint "gpu.vram.max >= 16GB"`.
+
+Operator-declared `node.tags` and `node.capabilities` are merged in and **override** auto-detected values for the same key. For anything the built-in detectors don't cover (installed packages, custom tools), declare **capability probes** — commands whose output becomes a capability:
+
+```yaml
+node:
+  capability_probes:
+    - capability: torch.version
+      command: ["python3", "-c", "import torch; print(torch.__version__)"]
+      version: true                 # extract a dotted version from the output
+    - capability: ffmpeg            # without `version`, the first output line is used
+      command: ["ffmpeg", "-version"]
+      version: true
+```
+
+Then route with `--constraint "torch.version >= 2.1"`. Container-image tasks (`--image`) are automatically restricted to nodes advertising `container.runtime`.
 
 **Three ways to require capabilities when submitting a task:**
 

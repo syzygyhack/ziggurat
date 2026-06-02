@@ -27,11 +27,22 @@ type Config struct {
 }
 
 type NodeConfig struct {
-	Name         string            `yaml:"name"`
-	Role         string            `yaml:"role"` // "hybrid" (default), "coordinator", "worker"
-	Tags         []string          `yaml:"tags"`
-	Capabilities map[string]string `yaml:"capabilities"`
-	DataDir      string            `yaml:"data_dir"`
+	Name             string            `yaml:"name"`
+	Role             string            `yaml:"role"` // "hybrid" (default), "coordinator", "worker"
+	Tags             []string          `yaml:"tags"`
+	Capabilities     map[string]string `yaml:"capabilities"`
+	CapabilityProbes []CapabilityProbe `yaml:"capability_probes"`
+	DataDir          string            `yaml:"data_dir"`
+}
+
+// CapabilityProbe is an operator-defined command whose output becomes a node
+// capability — for advertising facts the built-in detectors don't cover, e.g.
+// installed packages (torch.version) or tools (ffmpeg). The command runs once
+// at startup with a timeout.
+type CapabilityProbe struct {
+	Capability string   `yaml:"capability"` // capability key to set, e.g. "torch.version"
+	Command    []string `yaml:"command"`    // argv to execute
+	Version    bool     `yaml:"version"`    // if true, extract a dotted version from the output
 }
 
 type NetworkConfig struct {
