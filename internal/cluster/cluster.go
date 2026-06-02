@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"strings"
 	"strconv"
 	"time"
 
@@ -101,6 +100,20 @@ func New(cfg Config, log *slog.Logger) (*Cluster, error) {
 	ml, err := memberlist.Create(mlCfg)
 	if err != nil {
 		return nil, fmt.Errorf("create memberlist: %w", err)
+	}
+
+	// When no advertise address was configured, memberlist auto-selects one.
+	// On multi-homed machines (e.g. WSL2/Docker present) it may pick a virtual
+	// bridge address that other LAN machines cannot reach. Surface this so the
+	// user can set network.advertise rather than silently advertising a dead IP.
+	if cfg.AdvertiseAddr == "" {
+		selected := ml.LocalNode().Addr.String()
+		if isVirtualAddr(selected) {
+			log.Warn("cluster: auto-selected advertise address may be unreachable from other machines (WSL2/Docker bridge)", "addr", selected)
+			log.Warn("cluster: set network.advertise to this machine's LAN IP for cross-machine connectivity")
+		} else {
+			log.Info("cluster: advertise address", "addr", selected)
+		}
 	}
 
 	c := &Cluster{
@@ -287,23 +300,25 @@ func (w *slogWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-// isVirtualAddr returns true if the address is in a known virtual bridge
-// range (WSL2, Docker, VPN) that is typically not reachable from other
-// machines on the LAN.
+// isVirtualAddr returns true if the address is in the 172.16.0.0/12 range used
+// by Docker bridges and the WSL2 NAT adapter — interfaces that are typically
+// NOT reachable from other machines on the LAN.
+//
+// Note: 10.0.0.0/8 and 192.168.0.0/16 are deliberately NOT flagged. Although
+// some VPNs use 10.x, both ranges are extremely common for real home/office
+// LANs, and false-positive "unreachable" warnings on a working LAN are worse
+// than missing a rare VPN edge case.
 func isVirtualAddr(addr string) bool {
-	for _, prefix := range []string{
-		"172.17.",  // Docker default bridge
-		"172.18.", "172.19.",
-		"172.20.", "172.21.", "172.22.", "172.23.", "172.24.",
-		"172.25.", "172.26.", "172.27.", "172.28.", "172.29.",
-		"172.30.", "172.31.", // WSL2 range (172.18-31.x.x)
-		"10.",       // VPN/enterprise
-	} {
-		if strings.HasPrefix(addr, prefix) {
-			return true
-		}
+	ip := net.ParseIP(addr)
+	if ip == nil {
+		return false
 	}
-	return false
+	ip4 := ip.To4()
+	if ip4 == nil {
+		return false
+	}
+	// 172.16.0.0/12 spans 172.16.x.x – 172.31.x.x (Docker + WSL2).
+	return ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31
 }
 
 // detectEgressAddr determines the local IP address that would be used to

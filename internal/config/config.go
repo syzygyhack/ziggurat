@@ -213,12 +213,37 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config %s: %w", path, err)
 	}
 
+	// Expand a leading ~ in path fields so configs can use "~/.ziggurat"
+	// (a common convention) rather than only absolute paths.
+	cfg.Node.DataDir = expandTilde(cfg.Node.DataDir)
+	cfg.Storage.DataDir = expandTilde(cfg.Storage.DataDir)
+	cfg.Security.TLS.CertsDir = expandTilde(cfg.Security.TLS.CertsDir)
+
 	// Apply ZIGGURAT_ADDR env var for client connection.
 	if addr := os.Getenv("ZIGGURAT_ADDR"); addr != "" && cfg.Client.Addr == "" {
 		cfg.Client.Addr = addr
 	}
 
 	return cfg, nil
+}
+
+// expandTilde replaces a leading "~" (optionally followed by a separator) with
+// the user's home directory. Paths that don't start with "~" are returned
+// unchanged. If the home directory can't be resolved, the input is returned
+// as-is.
+func expandTilde(path string) string {
+	if path == "" || path[0] != '~' {
+		return path
+	}
+	if path != "~" && path[1] != '/' && path[1] != '\\' {
+		// e.g. "~user" — not supported; leave untouched.
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return path
+	}
+	return filepath.Join(home, path[1:])
 }
 
 // Validate checks the configuration for correctness and returns a

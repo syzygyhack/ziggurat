@@ -227,6 +227,13 @@ Ziggurat runs on Linux and Windows. Platform-specific code is isolated via build
 
 File permissions (`0o755`/`0o644`) are specified but only enforced on Linux; Windows ignores them. Tar archives use forward-slash paths regardless of OS for cross-platform determinism.
 
+### Windows gotchas for LAN use
+
+- **Commands must be real executables.** Task commands are executed directly, not through a shell. On Windows, shell built-ins like `echo`, `dir`, `set`, and `type` are *not* programs and will fail with "executable file not found". Wrap them: `ziggurat run -- cmd /c echo hello` (or invoke an interpreter, e.g. `python script.py`).
+- **Firewall.** Zero-config LAN discovery needs inbound traffic allowed for the gossip port (TCP+UDP `7102`), the gRPC port (`7101`), the HTTP API (`7100`), and mDNS (UDP `5353`). On first run, allow `ziggurat.exe` through Windows Defender Firewall on **private** networks, or peers won't discover/reach each other.
+- **Advertise address.** If the machine has WSL2 or Docker installed, the node may auto-select a `172.16–31.x.x` bridge address that other machines can't reach. Ziggurat warns when it detects this — set `network.advertise` to the machine's real LAN IP in `~/.ziggurat/ziggurat.yaml`.
+- **Persistent environments.** Python venvs on Windows place executables in `Scripts\` (vs `bin/` on Unix); both are added to `PATH` automatically.
+
 ## Monitoring
 
 Prometheus metrics are served at `/metrics` on the HTTP port (default 7100):

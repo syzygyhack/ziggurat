@@ -3,6 +3,7 @@ package worker
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -134,7 +135,13 @@ func TestApplyEnvPath(t *testing.T) {
 		}
 	}
 
-	expectedBin := filepath.Join("/data/envs/myenv", "bin")
+	// Unix venvs use bin/; Windows Python venvs use Scripts/ (prepended first).
+	var expectedBin string
+	if runtime.GOOS == "windows" {
+		expectedBin = filepath.Join("/data/envs/myenv", "Scripts")
+	} else {
+		expectedBin = filepath.Join("/data/envs/myenv", "bin")
+	}
 	if !strings.HasPrefix(pathVal, expectedBin) {
 		t.Errorf("PATH should start with %q, got %q", expectedBin, pathVal)
 	}

@@ -306,3 +306,26 @@ func TestValidate_EmptyRole(t *testing.T) {
 		t.Fatalf("empty role should be valid: %v", err)
 	}
 }
+
+func TestExpandTilde(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home dir")
+	}
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"", ""},
+		{"~", home},
+		{"~/.ziggurat", filepath.Join(home, ".ziggurat")},
+		{"/abs/path", "/abs/path"},
+		{"relative/path", "relative/path"},
+		{"~user/foo", "~user/foo"}, // unsupported form, untouched
+	}
+	for _, c := range cases {
+		if got := expandTilde(c.in); got != c.want {
+			t.Errorf("expandTilde(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

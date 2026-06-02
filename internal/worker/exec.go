@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -449,10 +450,22 @@ func BuildEnv(task *model.Task, workspace, inputDir, outputDir string) []string 
 }
 
 // applyEnvPath injects persistent-environment variables into the env slice:
-// ZIGGURAT_ENV, ZIGGURAT_ENV_NAME, VIRTUAL_ENV, and prepends <envPath>/bin
-// to PATH so venv/node_modules binaries resolve first.
+// ZIGGURAT_ENV, ZIGGURAT_ENV_NAME, VIRTUAL_ENV, and prepends the env's
+// executable directories to PATH so venv/node_modules binaries resolve first.
+// Layout differs by platform: Unix venvs (and most tools) use bin/, while
+// Windows Python venvs use Scripts/. We prepend whichever apply; PATH entries
+// that don't exist are simply ignored by the OS.
 func applyEnvPath(env []string, envPath string) []string {
-	binDir := filepath.Join(envPath, "bin")
+	var binDirs []string
+	if runtime.GOOS == "windows" {
+		binDirs = []string{
+			filepath.Join(envPath, "Scripts"),
+			filepath.Join(envPath, "bin"),
+		}
+	} else {
+		binDirs = []string{filepath.Join(envPath, "bin")}
+	}
+	binPrefix := strings.Join(binDirs, string(os.PathListSeparator))
 	envName := filepath.Base(envPath)
 
 	var result []string
@@ -463,8 +476,8 @@ func applyEnvPath(env []string, envPath string) []string {
 			continue
 		}
 		if strings.ToUpper(key) == "PATH" {
-			// Prepend env bin dir to PATH.
-			result = append(result, key+"="+binDir+string(os.PathListSeparator)+val)
+			// Prepend env executable dir(s) to PATH.
+			result = append(result, key+"="+binPrefix+string(os.PathListSeparator)+val)
 			continue
 		}
 		result = append(result, e)

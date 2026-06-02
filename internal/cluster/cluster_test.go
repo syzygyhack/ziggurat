@@ -304,3 +304,31 @@ func TestCluster_UpdateMeta(t *testing.T) {
 	n1, _ := c2.Registry.Get("node-1")
 	t.Fatalf("meta update not propagated: caps=%v", n1.Capabilities)
 }
+
+func TestIsVirtualAddr(t *testing.T) {
+	cases := []struct {
+		addr string
+		want bool
+	}{
+		// Docker / WSL2 NAT range (172.16.0.0/12) — flagged.
+		{"172.16.0.1", true},
+		{"172.17.0.2", true}, // Docker default bridge
+		{"172.31.255.254", true},
+		// Real LAN ranges — NOT flagged (common false-positive sources).
+		{"192.168.1.10", false},
+		{"10.0.0.5", false}, // standard private LAN, not just VPN
+		{"10.42.0.1", false},
+		// Just outside the 172.16/12 block.
+		{"172.15.0.1", false},
+		{"172.32.0.1", false},
+		// Non-IPv4 / garbage.
+		{"", false},
+		{"not-an-ip", false},
+		{"::1", false},
+	}
+	for _, c := range cases {
+		if got := isVirtualAddr(c.addr); got != c.want {
+			t.Errorf("isVirtualAddr(%q) = %v, want %v", c.addr, got, c.want)
+		}
+	}
+}
