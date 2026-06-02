@@ -222,9 +222,15 @@ ziggurat sweep --grid frame=1,2,3,4,5 -- blender -b scene.blend -f '${frame}'
 Each expanded task is an ordinary task (it can require tags, request resources,
 run in a container, etc.), so the work fans out across the mesh like any other.
 The command prints a `sweep id` and the task count; track the tasks with
-`ziggurat tasks`. Substitution also applies to `--input` keys and env values.
-Over the API, `POST /api/v1/sweeps` takes `{template, grid}` (or `{template,
-points}` for an explicit list of points).
+`ziggurat tasks`.
+
+The CLI substitutes `${name}` in the command. Over the API,
+`POST /api/v1/sweeps` takes a full task `template` (the same fields as a task
+submission) plus **either** a `grid` (cartesian product of named axes) **or**
+`points` (an explicit list) — not both — and substitution additionally applies
+to the template's `input_refs` values, `artifacts`, and `env` values. Every
+grid axis must have at least one value, and the expansion is capped at 10000
+tasks.
 
 ## Pipelines
 

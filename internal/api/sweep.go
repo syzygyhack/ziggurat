@@ -42,11 +42,6 @@ func (s *Server) submitSweep(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if len(reqs) > maxSweepTasks {
-		writeError(w, http.StatusBadRequest,
-			fmt.Sprintf("sweep expands to %d tasks, exceeds limit %d", len(reqs), maxSweepTasks))
-		return
-	}
 
 	results, badIdx, err := s.submitTaskBatch(r.Context(), reqs)
 	if err != nil {
@@ -70,12 +65,27 @@ func expandSweep(req sweepRequest) ([]submitTaskRequest, error) {
 	if len(req.Template.Command) == 0 {
 		return nil, fmt.Errorf("sweep template command is required")
 	}
+	if len(req.Grid) > 0 && len(req.Points) > 0 {
+		return nil, fmt.Errorf("specify either grid or points, not both")
+	}
+
 	points := req.Points
 	if len(points) == 0 {
+		// Validate and size the grid BEFORE materializing the product, so a
+		// small request cannot expand into a huge point set and exhaust memory.
+		size, err := gridSize(req.Grid)
+		if err != nil {
+			return nil, err
+		}
+		if size == 0 {
+			return nil, fmt.Errorf("sweep requires a non-empty grid or points")
+		}
+		if size > maxSweepTasks {
+			return nil, fmt.Errorf("sweep expands to %d tasks, exceeds limit %d", size, maxSweepTasks)
+		}
 		points = cartesian(req.Grid)
-	}
-	if len(points) == 0 {
-		return nil, fmt.Errorf("sweep requires a non-empty grid or points")
+	} else if len(points) > maxSweepTasks {
+		return nil, fmt.Errorf("sweep has %d points, exceeds limit %d", len(points), maxSweepTasks)
 	}
 
 	out := make([]submitTaskRequest, 0, len(points))
@@ -91,8 +101,31 @@ func expandSweep(req sweepRequest) ([]submitTaskRequest, error) {
 	return out, nil
 }
 
+// gridSize returns the number of points in the cartesian product, requiring
+// every axis to have at least one value (an empty axis would otherwise be
+// silently dropped, leaving its ${name} unsubstituted). It stops multiplying
+// once the running product exceeds maxSweepTasks, so it never overflows or
+// pre-counts an oversized space.
+func gridSize(grid map[string][]string) (int, error) {
+	if len(grid) == 0 {
+		return 0, nil
+	}
+	size := 1
+	for k, vals := range grid {
+		if len(vals) == 0 {
+			return 0, fmt.Errorf("grid axis %q has no values", k)
+		}
+		size *= len(vals)
+		if size > maxSweepTasks {
+			return size, nil // caller rejects; don't keep multiplying
+		}
+	}
+	return size, nil
+}
+
 // cartesian returns the cartesian product of the named axes as a list of points.
 // Axis order is sorted by key for deterministic, reproducible task ordering.
+// Callers must validate axes are non-empty first (see gridSize).
 func cartesian(grid map[string][]string) []map[string]string {
 	if len(grid) == 0 {
 		return nil

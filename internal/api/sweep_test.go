@@ -1,6 +1,9 @@
 package api
 
-import "testing"
+import (
+	"strconv"
+	"testing"
+)
 
 func TestExpandSweep_Grid(t *testing.T) {
 	req := sweepRequest{
@@ -75,5 +78,55 @@ func TestCartesian_Deterministic(t *testing.T) {
 		if a[i]["x"] != b[i]["x"] || a[i]["y"] != b[i]["y"] {
 			t.Error("cartesian product is not deterministic across calls")
 		}
+	}
+}
+
+func TestExpandSweep_GuardsAndValidation(t *testing.T) {
+	cmd := submitTaskRequest{Command: []string{"x", "${a}"}}
+
+	// Oversized grid (101 x 101 = 10201 > maxSweepTasks) is rejected by size
+	// check BEFORE materializing the product.
+	big := make([]string, 101)
+	for i := range big {
+		big[i] = strconv.Itoa(i)
+	}
+	if _, err := expandSweep(sweepRequest{Template: cmd, Grid: map[string][]string{"a": big, "b": big}}); err == nil {
+		t.Error("expected error for oversized grid")
+	}
+
+	// Empty axis is invalid (would leave ${a} unsubstituted), not silently dropped.
+	if _, err := expandSweep(sweepRequest{Template: cmd, Grid: map[string][]string{"a": {}, "b": {"1"}}}); err == nil {
+		t.Error("expected error for empty grid axis")
+	}
+
+	// grid and points are mutually exclusive.
+	if _, err := expandSweep(sweepRequest{
+		Template: cmd,
+		Grid:     map[string][]string{"a": {"1"}},
+		Points:   []map[string]string{{"a": "1"}},
+	}); err == nil {
+		t.Error("expected error when both grid and points are set")
+	}
+
+	// Oversized explicit points list is rejected.
+	pts := make([]map[string]string, maxSweepTasks+1)
+	for i := range pts {
+		pts[i] = map[string]string{"a": "1"}
+	}
+	if _, err := expandSweep(sweepRequest{Template: cmd, Points: pts}); err == nil {
+		t.Error("expected error for oversized points")
+	}
+}
+
+func TestGridSize(t *testing.T) {
+	n, err := gridSize(map[string][]string{"a": {"1", "2"}, "b": {"x", "y", "z"}})
+	if err != nil || n != 6 {
+		t.Errorf("gridSize = %d, %v; want 6, nil", n, err)
+	}
+	if _, err := gridSize(map[string][]string{"a": {}}); err == nil {
+		t.Error("expected error for empty axis")
+	}
+	if n, _ := gridSize(nil); n != 0 {
+		t.Errorf("empty grid size = %d, want 0", n)
 	}
 }
