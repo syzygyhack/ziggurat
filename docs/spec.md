@@ -1590,12 +1590,120 @@ Multi-node mesh. Builds on 0a by adding discovery, gossip, replication, and dist
 
 ### Phase 2: Advanced
 
+Workload-driven features (see "Phase 2 Planning" below for rationale), highest
+doors-per-effort first:
+
+- [ ] **Parametric fan-out / sweep primitive** (P0) — expand one task template over a parameter space into N tasks
+- [ ] **Global consumable resources / semaphores** (P0) — cluster-wide countable limits (license seats, API rate, DB conns)
+- [ ] **Warm / sticky worker pool** (decide deliberately, not now) — long-lived processes for expensive in-memory init
+
+Infrastructure / hardening:
+
 - [ ] Coordinator failover (Raft via hashicorp/raft)
 - [ ] Speculative execution for slow tasks
 - [ ] Cross-cluster federation (connect multiple Ziggurat clusters)
 - [ ] Python client library (pip installable)
 - [ ] Encryption at rest
-- [ ] Resource limits enforcement (cgroups: CPU, memory, disk I/O per task)
+- [ ] Resource limits enforcement (cgroups: CPU, memory, disk I/O per task) — *also an isolation prerequisite, see gating note below*
+
+---
+
+## Phase 2 Planning: Workload Shapes → Entities → Feature Gaps
+
+Planning principle: **entities are downstream of workload shape.** A hardware-rich
+adopter only matters if its work has a shape Ziggurat is good at. So we lead with
+shapes, hang entities off them, and end with the feature gaps the exercise surfaces.
+
+### Shapes Ziggurat fits (descending order of fit)
+
+1. **Embarrassingly-parallel fan-out** — N independent items over a fixed input.
+2. **Pipeline DAGs** — already built.
+3. **Batch transform / inference over a corpus** — one model/tool loaded per worker, items independent.
+4. **Capability-matched dispatch** — this job needs *that* OS / GPU / license.
+
+Anything fitting one of these with **large read-many inputs** is dead-center for the
+content store. **Out of scope (the wall):** fine-grained inter-task communication
+(MPI-style coupling, tensor traffic) — Ziggurat is for independent-item workloads only.
+
+### Target entities (hardware + right-shaped work)
+
+| Entity | Shape | Notes |
+|--------|-------|-------|
+| Small VFX / archviz / motion-graphics studios | fan-out | Strongest non-research fit. Frame-per-task, big shared scene file (store is perfect), heterogeneous GPUs by capability. Blender/Houdini/AE. Don't want k8s. |
+| Bioinformatics / genomics labs | fan-out + pipeline | BLAST/variant calling/alignment over samples; huge read-many reference DBs; align→call→annotate→report. |
+| Homelab / self-hosters | fan-out | NAS + old GPU + NUCs + Pis. ffmpeg transcode, photo processing, personal CI. The canonical idle-heterogeneous-boxes persona. |
+| Small software shops (no cloud / data-residency) | capability-matched fan-out | CI test-matrix, cross-platform builds (`os`/`arch` matching), nightly regression, fuzzing. "Can't send to cloud" is real. |
+| Data journalism / OSINT / digital humanities | batch + pipeline | OCR over scanned archives, Whisper transcription, NLP over a corpus. Large read-many inputs. |
+| Quant hobbyists / small trading shops | fan-out | Backtest sweeps, Monte-Carlo risk over a fixed dataset. Already think "spare machines overnight." |
+| ML practitioners (everything *except* training) | batch inference | Preprocessing, embeddings, batch inference, synthetic data, eval harnesses. The *legitimate* GPU case: one model per worker, items independent, no tensor traffic. |
+| Security teams | fan-out | Fuzzing, distributed scanning, sample detonation. Several **gate on isolation**. |
+| Edge / field deployments | fan-out | NUC/Pi fleets preprocessing sensor data before uplink. Inverts the locality assumption (data born distributed); WAN-ish gossip robustness matters more. |
+| Teaching clusters | fan-out | Autograders, hands-on HPC. **Gate on isolation.** |
+
+### Feature gaps surfaced (the planning payload)
+
+**1. Parametric fan-out (sweep) primitive — P0, cheap, unlocks nearly everyone.**
+Almost every strong fit is "run this template across a grid of N values" (frames,
+samples, documents, seeds, hyperparameters). `batch --from` exists, but the
+unlocking ergonomic is a sweep generator.
+- Submit one task **template** + a **parameter space** (explicit list, or cartesian
+  product of named axes); the coordinator expands it into N concrete tasks.
+- Template substitutes params (the task model already has a `Params` field) into
+  command/args/input keys, e.g. `--seed ${seed}`, `frame_${frame}`.
+- Tracked as a group (like a pipeline) for status / cancel / retry. Each expanded
+  task is an ordinary independent task → reuses all existing machinery.
+- Pure coordinator-side expansion; cheap. The difference between "a scheduler" and
+  "a thing renderers and sweepers reach for instinctively."
+
+**2. Global consumable resources / semaphores — P0, genuine architectural addition.**
+Today `ResourceReq` is **per-node** (memory/cores/GPUs on the chosen box). Several
+entities have **cluster-wide countable** constraints not expressible at all:
+commercial-solver/MATLAB license seats ("4 concurrent"), shared API rate limits,
+external DB connection caps, scratch-quota ceilings.
+- Declare global resources in cluster config, e.g. `consumables: { license.matlab: 4, api.openai_rps: 10 }`.
+- A task declares consumption: `consumes: { license.matlab: 1 }`; admission **blocks**
+  until a token is free, acquires on start, releases on completion.
+- **Architectural impact:** admission now depends on **cluster-global** state, not
+  just the chosen worker — the coordinator owns an authoritative consumable ledger.
+  Single-coordinator is the authority until Raft; federation/multi-coordinator needs
+  coordination. This is why it's a real addition, not a tweak.
+- Unlocks: studios (per-seat render licenses), engineering (Gurobi/Abaqus/MATLAB),
+  anyone fanning out against a rate-limited external service.
+
+**3. Warm / sticky worker pool — known future axis; decide deliberately, do NOT build now.**
+Persistent environments solve the **filesystem** side of expensive setup (venvs,
+node_modules). Warm workers solve the **process-memory** side: a model in VRAM, a
+JIT-warmed kernel, an opened index — kept alive across many tasks. Stateless
+task-per-exec throws that away every time.
+- Design fork: a long-lived warm worker process pool + **sticky affinity** routing
+  similar items (by a "warm key") to the same warm process.
+- Tension: pulls against the "task completes and releases its worker" assumption —
+  the same wall as the previously-rejected serving-mode pooled inference.
+- Posture: **default stays stateless exec.** If built, it is opt-in (task/sweep
+  marks a warm pool + key). Flagged as an axis to choose, not drift into.
+- Unlocks: batch inference (one model loaded per worker), repeated-query/index
+  workloads, eval harnesses.
+
+### Gating dependency: isolation (containers + cgroups)
+
+Container execution (Podman) and cgroup resource-limit enforcement are **load-bearing**
+for a whole tier — they are the unchecked Phase 1/2 boxes. Until they land, these
+entities are **unreachable** because they run mutually-distrusting or untrusted code:
+- CS autograders (untrusted student submissions)
+- Malware / sample detonation
+- Multi-tenant teaching clusters
+- Any shop running mutually-distrusting jobs
+
+Implication: if the isolation-gated tier is a target, **containers + cgroups move up
+the priority list**.
+
+### Prioritization summary
+
+- **Most doors per unit effort:** (1) sweep primitive [renderers, sweepers, bio,
+  journalism, ML prep — basically everyone] and (2) global semaphores [the
+  license-constrained professional tier].
+- **Decide deliberately, don't drift:** the warm-worker fork and the container/cgroup
+  isolation dependency.
 
 ---
 
