@@ -2,6 +2,7 @@ package node
 
 import (
 	"github.com/syzygyhack/ziggurat/internal/config"
+	"github.com/syzygyhack/ziggurat/internal/version"
 	"runtime"
 	"strconv"
 	"testing"
@@ -205,5 +206,28 @@ func TestRunCapabilityProbes(t *testing.T) {
 	}
 	if len(caps) != 2 {
 		t.Errorf("expected exactly 2 caps, got %v", caps)
+	}
+}
+
+func TestDetectCapabilities_ZigguratVersion(t *testing.T) {
+	orig := version.Version
+	defer func() { version.Version = orig }()
+
+	// Tagged build: advertised in comparable (v-stripped) form.
+	version.Version = "v0.3.0"
+	if got := DetectCapabilities("")["ziggurat.version"]; got != "0.3.0" {
+		t.Errorf("ziggurat.version = %q, want 0.3.0", got)
+	}
+
+	// git-describe form: base semver is extracted.
+	version.Version = "v0.3.0-5-gabc1234-dirty"
+	if got := DetectCapabilities("")["ziggurat.version"]; got != "0.3.0" {
+		t.Errorf("describe build ziggurat.version = %q, want 0.3.0", got)
+	}
+
+	// Dev/untagged build: omitted, so version-gated work never lands here.
+	version.Version = "dev"
+	if got, ok := DetectCapabilities("")["ziggurat.version"]; ok {
+		t.Errorf("dev build should omit ziggurat.version, got %q", got)
 	}
 }

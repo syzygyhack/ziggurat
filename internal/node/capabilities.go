@@ -14,6 +14,7 @@ import (
 
 	"github.com/syzygyhack/ziggurat/internal/config"
 	"github.com/syzygyhack/ziggurat/internal/util"
+	"github.com/syzygyhack/ziggurat/internal/version"
 )
 
 // DetectCapabilities probes the local system and returns a map of
@@ -61,6 +62,14 @@ func DetectCapabilities(dataDir string) map[string]string {
 
 	// Language runtime detection (best-effort): python.version, node.version, etc.
 	detectRuntimes(caps)
+
+	// Advertise the ziggurat build version (comparable form) so work can be
+	// gated on node version, e.g. --constraint "ziggurat.version >= 0.3.0".
+	// Only set when a dotted semver is extractable (tagged builds); dev/untagged
+	// builds omit it, so version-gated tasks safely never land on them.
+	if v := parseRuntimeVersion(version.Version); v != "" {
+		caps["ziggurat.version"] = v
+	}
 
 	return caps
 }

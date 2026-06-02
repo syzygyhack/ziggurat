@@ -6,16 +6,11 @@ import (
 	"os"
 
 	"github.com/syzygyhack/ziggurat/internal/cmd"
-)
-
-// Set via ldflags.
-var (
-	version = "dev"
-	commit  = "unknown"
+	"github.com/syzygyhack/ziggurat/internal/version"
 )
 
 func main() {
-	root := cmd.NewRootCmd(version, commit)
+	root := cmd.NewRootCmd(version.Version, version.Commit)
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		var exitErr *cmd.ExitError

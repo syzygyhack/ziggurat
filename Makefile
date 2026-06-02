@@ -34,7 +34,8 @@ endif
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>$(DEVNULL) || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>$(DEVNULL) || echo unknown)
-LDFLAGS := -ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT)"
+VERSION_PKG := github.com/syzygyhack/ziggurat/internal/version
+LDFLAGS := -ldflags "-X $(VERSION_PKG).Version=$(VERSION) -X $(VERSION_PKG).Commit=$(COMMIT)"
 
 .PHONY: build install test test-race coverage fmt vet lint tidy proto clean windows help
 

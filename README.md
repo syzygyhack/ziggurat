@@ -130,7 +130,10 @@ Each node advertises **capabilities** — auto-detected facts plus operator-decl
 | `gpu.<i>.model`, `gpu.<i>.vram` | per-device | as above |
 | `container.runtime` | `podman` / `docker` | `PATH` lookup |
 | `compute.concurrency` | `16` | task slots |
+| `ziggurat.version` | `0.3.0` | build version (tagged builds only) |
 | `python.version`, `node.version`, `go.version`, `java.version`, `ruby.version`, `rust.version` | `3.12.1`, `20.11.0`, … | runtime `--version` probes |
+
+Gate work on the agent's build version with `--constraint "ziggurat.version >= 0.3.0"` — useful when a task relies on a feature added in a specific release. Only **tagged** builds (semver from `git describe`) advertise `ziggurat.version`; `dev`/untagged builds omit it, so version-gated tasks safely never land on them.
 
 `gpu.vram` is the **sum** across devices; use `gpu.vram.max` (largest single device) to require one GPU big enough for a job, e.g. `--constraint "gpu.vram.max >= 16GB"`.
 
@@ -343,8 +346,8 @@ Coordinator failover (Raft), speculative execution, cross-cluster federation, Py
 ```bash
 go build -o ziggurat ./cmd/ziggurat
 
-# With version info
-go build -ldflags "-X main.version=0.1.0 -X main.commit=$(git rev-parse --short HEAD)" -o ziggurat ./cmd/ziggurat
+# With version info (also sets the ziggurat.version capability for version gating)
+go build -ldflags "-X github.com/syzygyhack/ziggurat/internal/version.Version=$(git describe --tags --always) -X github.com/syzygyhack/ziggurat/internal/version.Commit=$(git rev-parse --short HEAD)" -o ziggurat ./cmd/ziggurat
 ```
 
 Or use the Makefile (injects version/commit automatically):

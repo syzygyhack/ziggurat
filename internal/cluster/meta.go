@@ -80,6 +80,7 @@ var essentialCapKeys = map[string]bool{
 	"os": true, "arch": true, "cpu.cores": true, "mem.total": true,
 	"compute.concurrency": true, "gpu.count": true, "gpu.vram": true,
 	"gpu.vram.max": true, "gpu.vendor": true, "container.runtime": true,
+	"ziggurat.version": true,
 }
 
 // encodeMetaFitting encodes node metadata so the result is <= limit bytes.

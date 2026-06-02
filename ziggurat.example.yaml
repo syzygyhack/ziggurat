@@ -11,7 +11,8 @@ node:
                               # storage.class, compute.concurrency, container.runtime,
                               # gpu.count, gpu.vram, gpu.vram.max, gpu.model, gpu.vendor,
                               # gpu.<i>.model, gpu.<i>.vram, gpu.cuda, gpu.driver,
-                              # and runtime versions: python/node/go/java/ruby/rust.version
+                              # ziggurat.version (tagged builds), and runtime
+                              # versions: python/node/go/java/ruby/rust.version
   # capability_probes: []    # Operator-defined probes for anything not auto-detected.
                               # Each runs a command at startup; output becomes a capability:
                               #   - capability: torch.version
