@@ -248,6 +248,12 @@ ziggurat/
 - **Pipeline DAGs**: Kahn's algorithm cycle detection, `$stage.output` reference resolution, transitive failure cancellation
 - **Platform-split process management**: `process_unix.go` (SIGTERM/SIGKILL via process groups) and `process_windows.go` (CREATE_NEW_PROCESS_GROUP + TerminateProcess)
 
+### Fault tolerance & delivery semantics
+
+When a node leaves the cluster, the coordinator re-queues the tasks it was running (`RUNNING`/`SCHEDULED`) so they can be retried on another capable node; its load tracking and stale shard placements are cleaned up and a repair pass restores replication. Graceful shutdowns broadcast a clean departure; crashes are caught by the gossip failure detector.
+
+**Task execution is at-least-once, not exactly-once.** Re-queuing assumes a departed node has stopped working. On a true crash this holds. But during a **network partition** — the node is alive and still executing but unreachable from the coordinator — the task may be re-dispatched and run a second time elsewhere. Design your task commands to be **idempotent** (or tolerant of duplicate runs); writing outputs to content-addressed storage, which is keyed by content hash, naturally deduplicates. Exactly-once execution would require execution leases / fencing tokens and is not currently implemented.
+
 ## Cross-Platform Notes
 
 Ziggurat runs on Linux and Windows. Platform-specific code is isolated via build tags:
