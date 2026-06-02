@@ -1,15 +1,21 @@
 package cluster
 
 import (
+	"bytes"
+	"compress/flate"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 )
 
 // NodeMeta is the metadata payload broadcast by each node via memberlist.
-// It is serialized to JSON and attached to the memberlist Node.Meta field.
-// Keep this small — memberlist has a default meta limit of 512 bytes.
+// It is serialized to JSON, DEFLATE-compressed, and attached to the memberlist
+// Node.Meta field. memberlist hard-caps Node.Meta at 512 bytes (MetaMaxSize is
+// a const), and capability maps (GPU model strings, runtime versions, etc.)
+// readily exceed that uncompressed — so we compress. JSON with repetitive keys
+// compresses ~2x, keeping realistic nodes well under the limit.
 type NodeMeta struct {
 	ID          string            `json:"id"`
 	Name        string            `json:"name"`
@@ -22,13 +28,46 @@ type NodeMeta struct {
 	TokenHMAC   string            `json:"token_hmac,omitempty"` // HMAC-SHA256(join_token, node_id)
 }
 
+// encodeMeta marshals node metadata to JSON and DEFLATE-compresses it so it
+// fits within memberlist's 512-byte meta limit.
 func encodeMeta(m *NodeMeta) ([]byte, error) {
-	return json.Marshal(m)
+	j, err := json.Marshal(m)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	w, err := flate.NewWriter(&buf, flate.BestCompression)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := w.Write(j); err != nil {
+		return nil, err
+	}
+	if err := w.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
+// decodeMeta reverses encodeMeta. For forward/backward compatibility it also
+// accepts uncompressed JSON (a leading '{'), so a mixed-version cluster during
+// a rolling upgrade still interoperates.
 func decodeMeta(data []byte) (*NodeMeta, error) {
 	var m NodeMeta
-	if err := json.Unmarshal(data, &m); err != nil {
+	if len(data) > 0 && data[0] == '{' {
+		// Legacy uncompressed JSON.
+		if err := json.Unmarshal(data, &m); err != nil {
+			return nil, err
+		}
+		return &m, nil
+	}
+	r := flate.NewReader(bytes.NewReader(data))
+	j, err := io.ReadAll(r)
+	r.Close()
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(j, &m); err != nil {
 		return nil, err
 	}
 	return &m, nil

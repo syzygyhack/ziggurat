@@ -1,12 +1,16 @@
 package node
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/syzygyhack/ziggurat/internal/util"
 )
@@ -48,7 +52,81 @@ func DetectCapabilities(dataDir string) map[string]string {
 	// GPU detection via nvidia-smi (best-effort).
 	detectNvidiaGPU(caps)
 
+	// Language runtime detection (best-effort): python.version, node.version, etc.
+	detectRuntimes(caps)
+
 	return caps
+}
+
+// versionPattern extracts the first dot-separated numeric version (e.g. the
+// "3.12.1" in "Python 3.12.1" or the "1.24.0" in "go version go1.24.0 ...").
+var versionPattern = regexp.MustCompile(`\d+\.\d+(?:\.\d+)*`)
+
+// parseRuntimeVersion pulls a dotted version string out of a tool's --version
+// output. Returns "" if none is found.
+func parseRuntimeVersion(output string) string {
+	return versionPattern.FindString(output)
+}
+
+// runtimeProbe describes how to detect a language runtime and the capability
+// key under which its version is advertised.
+type runtimeProbe struct {
+	capKey string   // e.g. "python.version"
+	bins   []string // candidate executables, first found wins
+	args   []string // version arguments
+}
+
+// runtimeProbes lists the language runtimes detected at startup. Versions are
+// advertised as "<runtime>.version" capabilities so tasks can require them
+// with, e.g., --constraint "python.version >= 3.10".
+var runtimeProbes = []runtimeProbe{
+	{"python.version", []string{"python3", "python"}, []string{"--version"}},
+	{"node.version", []string{"node"}, []string{"--version"}},
+	{"go.version", []string{"go"}, []string{"version"}},
+	{"java.version", []string{"java"}, []string{"-version"}},
+	{"ruby.version", []string{"ruby"}, []string{"--version"}},
+	{"rust.version", []string{"rustc"}, []string{"--version"}},
+}
+
+// detectRuntimes probes for installed language runtimes concurrently and records
+// each one's version as a "<runtime>.version" capability. Best-effort: a runtime
+// that is absent, hangs, or prints no parseable version is simply skipped.
+// Operator-configured node.capabilities still override these via MergeCapabilities.
+func detectRuntimes(caps map[string]string) {
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for _, p := range runtimeProbes {
+		p := p
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if v := probeRuntimeVersion(p.bins, p.args); v != "" {
+				mu.Lock()
+				caps[p.capKey] = v
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+// probeRuntimeVersion runs the first available binary's version command and
+// returns the parsed version. Output is captured combined because some tools
+// (notably `java -version`) print to stderr. A short timeout guards against a
+// misbehaving tool stalling node startup.
+func probeRuntimeVersion(bins, args []string) string {
+	for _, bin := range bins {
+		if _, err := exec.LookPath(bin); err != nil {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		out, _ := exec.CommandContext(ctx, bin, args...).CombinedOutput()
+		cancel()
+		if v := parseRuntimeVersion(string(out)); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // MergeCapabilities merges auto-detected and user-configured capabilities.

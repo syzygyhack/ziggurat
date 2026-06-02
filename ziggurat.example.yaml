@@ -7,7 +7,9 @@ node:
   # tags: []                 # Presence flags for task routing (e.g. ["gpu", "python3"])
   # capabilities: {}         # Typed key-value overrides (e.g. python.version: "3.12")
                               # Auto-detected: os, arch, cpu.cores, mem.total, disk.avail,
-                              # hostname, gpu.count, gpu.model, gpu.vram, gpu.cuda, gpu.driver
+                              # hostname, storage.class, compute.concurrency,
+                              # gpu.count, gpu.model, gpu.vram, gpu.cuda, gpu.driver,
+                              # and runtime versions: python/node/go/java/ruby/rust.version
   data_dir: ~/.ziggurat       # Root directory for all persistent data
 
 network:

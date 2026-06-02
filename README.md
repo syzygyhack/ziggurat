@@ -116,6 +116,40 @@ log:
 
 Connection resolution for client commands: `--addr` flag > `ZIGGURAT_ADDR` env > config `client.addr` > `127.0.0.1:7100`.
 
+## Capabilities & Scheduling
+
+Each node advertises **capabilities** — auto-detected facts plus operator-declared values — and tasks are routed only to nodes that satisfy their requirements. Matching happens both at the coordinator (candidate selection) and at the receiving worker, so a task never runs on an ineligible node.
+
+**Auto-detected** (no config needed):
+
+| Capability | Example | Source |
+|------------|---------|--------|
+| `os`, `arch`, `cpu.cores` | `linux`, `amd64`, `24` | runtime |
+| `mem.total`, `disk.avail`, `storage.class` | bytes; `ssd` | OS probes |
+| `gpu.count`, `gpu.model`, `gpu.vram`, `gpu.cuda`, `gpu.driver` | `1`, `NVIDIA GeForce RTX 4090 D`, … | `nvidia-smi` / `nvcc` |
+| `compute.concurrency` | `16` | task slots |
+| `python.version`, `node.version`, `go.version`, `java.version`, `ruby.version`, `rust.version` | `3.12.1`, `20.11.0`, … | runtime `--version` probes |
+
+Operator-declared `node.tags` and `node.capabilities` are merged in and **override** auto-detected values for the same key.
+
+**Three ways to require capabilities when submitting a task:**
+
+```bash
+# Tags (presence flags) — node must carry every required tag
+ziggurat run --require gpu --require python3 -- python train.py
+
+# Capability constraints (expressions: == != >= <= > <; version- and byte-size-aware)
+ziggurat run --constraint "python.version >= 3.10" -- python script.py
+ziggurat run --constraint "gpu.vram >= 16GB" -- ./infer
+
+# Resources (admission + live capacity) — routes to nodes with enough free CPU/mem/GPU
+ziggurat run --gpus 1 --memory 8GB -- ./gpu-job
+```
+
+A GPU job (`--gpus N`) is placed only on nodes with enough free GPUs, which then reserve devices and expose them via `CUDA_VISIBLE_DEVICES`. A task whose requirements no node satisfies stays queued until an eligible node appears.
+
+> Note: capability requirements are **explicit** — Ziggurat does not infer them from the command (a `.py` argument does not auto-require Python). Declare what a task needs with `--require` / `--constraint` / `--gpus`.
+
 ## Commands
 
 ### Cluster Lifecycle
