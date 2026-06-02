@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"sort"
 )
 
 // NodeMeta is the metadata payload broadcast by each node via memberlist.
@@ -71,6 +72,65 @@ func decodeMeta(data []byte) (*NodeMeta, error) {
 		return nil, err
 	}
 	return &m, nil
+}
+
+// essentialCapKeys are the capabilities never dropped when meta must be
+// shrunk to fit the gossip size limit — they drive core scheduling decisions.
+var essentialCapKeys = map[string]bool{
+	"os": true, "arch": true, "cpu.cores": true, "mem.total": true,
+	"compute.concurrency": true, "gpu.count": true, "gpu.vram": true,
+	"container.runtime": true,
+}
+
+// encodeMetaFitting encodes node metadata so the result is <= limit bytes.
+// memberlist hard-caps Node.Meta at MetaMaxSize; a node whose caps exceed the
+// (compressed) budget must shed some rather than gossip truncated, undecodable
+// bytes. Non-essential capabilities are dropped largest-first until it fits.
+// Returns the encoded bytes and the keys that were dropped (for logging).
+func encodeMetaFitting(m *NodeMeta, limit int) ([]byte, []string, error) {
+	data, err := encodeMeta(m)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(data) <= limit {
+		return data, nil, nil
+	}
+
+	// Copy caps so we don't mutate the caller's map.
+	reduced := *m
+	reduced.Caps = make(map[string]string, len(m.Caps))
+	for k, v := range m.Caps {
+		reduced.Caps[k] = v
+	}
+
+	// Droppable keys, ordered largest-first (key+value bytes).
+	type kv struct {
+		k    string
+		size int
+	}
+	var droppable []kv
+	for k, v := range reduced.Caps {
+		if !essentialCapKeys[k] {
+			droppable = append(droppable, kv{k, len(k) + len(v)})
+		}
+	}
+	sort.Slice(droppable, func(i, j int) bool { return droppable[i].size > droppable[j].size })
+
+	var dropped []string
+	for _, e := range droppable {
+		delete(reduced.Caps, e.k)
+		dropped = append(dropped, e.k)
+		data, err = encodeMeta(&reduced)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(data) <= limit {
+			return data, dropped, nil
+		}
+	}
+	// Even with all non-essential caps dropped it doesn't fit; return the
+	// smallest valid encoding we have (essentials only). Still valid JSON.
+	return data, dropped, nil
 }
 
 // computeJoinHMAC returns the hex-encoded HMAC-SHA256 of the join token

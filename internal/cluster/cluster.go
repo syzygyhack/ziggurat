@@ -61,7 +61,7 @@ func New(cfg Config, log *slog.Logger) (*Cluster, error) {
 		TokenHMAC:   computeJoinHMAC(cfg.NodeID, cfg.JoinToken),
 	}
 
-	del, err := newDelegate(meta)
+	del, err := newDelegate(meta, log)
 	if err != nil {
 		return nil, fmt.Errorf("create delegate: %w", err)
 	}
@@ -224,10 +224,7 @@ func (c *Cluster) LocalAddr() string {
 
 // UpdateMeta replaces the node's broadcast metadata (e.g. after cap refresh).
 func (c *Cluster) UpdateMeta(caps map[string]string, tags []string) {
-	c.delegate.mu.RLock()
-	old, _ := decodeMeta(c.delegate.meta)
-	c.delegate.mu.RUnlock()
-
+	old := c.delegate.currentMeta()
 	if old == nil {
 		return
 	}

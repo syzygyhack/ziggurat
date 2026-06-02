@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 )
 
@@ -54,6 +55,40 @@ func TestEncodeMeta_FitsMemberlistLimit(t *testing.T) {
 		t.Fatalf("encoded meta is %d bytes, exceeds memberlist limit %d", len(enc), memberlistMetaMaxSize)
 	}
 	t.Logf("encoded meta: %d/%d bytes", len(enc), memberlistMetaMaxSize)
+}
+
+// When meta exceeds the limit, encodeMetaFitting must drop non-essential caps
+// (largest-first), keep essentials, and always produce valid, decodable bytes.
+func TestEncodeMetaFitting_DropsNonEssential(t *testing.T) {
+	m := sampleMeta()
+	// Add bulky non-essential caps with unique keys AND values (random-looking
+	// so they don't just compress away) to force the encoding over the limit.
+	for i := 0; i < 40; i++ {
+		k := fmt.Sprintf("pkg%02d.version", i)
+		m.Caps[k] = fmt.Sprintf("%d.%d.%d-build.%x", i*7%19, i*13%23, i*31%41, i*2654435761)
+	}
+
+	const limit = 512
+	enc, dropped, err := encodeMetaFitting(m, limit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(enc) > limit {
+		t.Fatalf("encoded %d bytes still exceeds limit %d", len(enc), limit)
+	}
+	if len(dropped) == 0 {
+		t.Fatal("expected some capabilities to be dropped")
+	}
+	// Must remain valid/decodable and retain essential scheduling caps.
+	got, err := decodeMeta(enc)
+	if err != nil {
+		t.Fatalf("dropped-cap meta failed to decode: %v", err)
+	}
+	for _, k := range []string{"os", "arch", "cpu.cores", "gpu.count", "compute.concurrency"} {
+		if got.Caps[k] == "" {
+			t.Errorf("essential cap %q was dropped", k)
+		}
+	}
 }
 
 // decodeMeta must still accept legacy uncompressed JSON for rolling upgrades.
