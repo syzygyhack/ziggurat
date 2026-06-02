@@ -72,12 +72,16 @@ vet:
 	go vet ./...
 
 lint:
+ifdef WIN_CMD
+	@where golangci-lint >NUL 2>NUL && golangci-lint run ./... || (echo golangci-lint not installed, running go vet only & go vet ./...)
+else
 	@if command -v golangci-lint >/dev/null 2>&1; then \
 		golangci-lint run ./...; \
 	else \
 		echo "golangci-lint not installed, running go vet only"; \
 		go vet ./...; \
 	fi
+endif
 
 tidy:
 	go mod tidy
