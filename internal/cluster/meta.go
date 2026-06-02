@@ -79,7 +79,7 @@ func decodeMeta(data []byte) (*NodeMeta, error) {
 var essentialCapKeys = map[string]bool{
 	"os": true, "arch": true, "cpu.cores": true, "mem.total": true,
 	"compute.concurrency": true, "gpu.count": true, "gpu.vram": true,
-	"container.runtime": true,
+	"gpu.vram.max": true, "gpu.vendor": true, "container.runtime": true,
 }
 
 // encodeMetaFitting encodes node metadata so the result is <= limit bytes.

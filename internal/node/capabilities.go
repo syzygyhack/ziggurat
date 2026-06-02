@@ -55,8 +55,8 @@ func DetectCapabilities(dataDir string) map[string]string {
 		caps["container.runtime"] = rt
 	}
 
-	// GPU detection via nvidia-smi (best-effort).
-	detectNvidiaGPU(caps)
+	// GPU detection across vendors (NVIDIA full; AMD/Intel best-effort).
+	detectGPU(caps)
 
 	// Language runtime detection (best-effort): python.version, node.version, etc.
 	detectRuntimes(caps)
@@ -159,68 +159,190 @@ func detectContainerRuntime() string {
 	return ""
 }
 
-// detectNvidiaGPU probes nvidia-smi for GPU information.
-func detectNvidiaGPU(caps map[string]string) {
+// gpuDevice describes a single detected GPU.
+type gpuDevice struct {
+	vendor string // nvidia | amd | intel
+	model  string
+	vram   int64 // bytes; 0 if unknown
+}
+
+// gpuProbeCmd runs a GPU tool with a short timeout (these can hang on a wedged
+// driver) and returns combined-free stdout.
+func gpuProbeCmd(name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return exec.CommandContext(ctx, name, args...).Output()
+}
+
+// detectGPU aggregates GPUs across vendors and records both aggregate caps
+// (gpu.count, gpu.vram total, gpu.vram.max single-largest, gpu.model,
+// gpu.vendor) and per-device caps (gpu.<i>.model, gpu.<i>.vram). NVIDIA is
+// detected in full; AMD and Intel are best-effort (count + vendor, VRAM when
+// the vendor tool reports it). Each detector no-ops if its tool is absent.
+func detectGPU(caps map[string]string) {
+	var devices []gpuDevice
+	devices = append(devices, detectNvidiaDevices(caps)...)
+	devices = append(devices, detectAMDDevices()...)
+	devices = append(devices, detectIntelDevices()...)
+	aggregateGPU(caps, devices)
+}
+
+// aggregateGPU writes aggregate and per-device GPU capabilities.
+func aggregateGPU(caps map[string]string, devices []gpuDevice) {
+	if len(devices) == 0 {
+		return
+	}
+	var totalVRAM, maxVRAM int64
+	var models, vendors []string
+	for i, d := range devices {
+		caps[fmt.Sprintf("gpu.%d.model", i)] = d.model
+		if d.vram > 0 {
+			caps[fmt.Sprintf("gpu.%d.vram", i)] = strconv.FormatInt(d.vram, 10)
+		}
+		totalVRAM += d.vram
+		if d.vram > maxVRAM {
+			maxVRAM = d.vram
+		}
+		models = append(models, d.model)
+		vendors = append(vendors, d.vendor)
+	}
+	caps["gpu.count"] = strconv.Itoa(len(devices))
+	caps["gpu.vram"] = strconv.FormatInt(totalVRAM, 10)
+	if maxVRAM > 0 {
+		// Largest single-device VRAM — use this (not the summed gpu.vram) to
+		// require a GPU big enough for one job, e.g. gpu.vram.max >= 16GB.
+		caps["gpu.vram.max"] = strconv.FormatInt(maxVRAM, 10)
+	}
+	caps["gpu.model"] = strings.Join(dedup(models), ", ")
+	caps["gpu.vendor"] = strings.Join(dedup(vendors), ", ")
+}
+
+// detectNvidiaDevices probes nvidia-smi (per device) and also records driver
+// and CUDA version capabilities.
+func detectNvidiaDevices(caps map[string]string) []gpuDevice {
 	smi, err := exec.LookPath("nvidia-smi")
 	if err != nil {
-		return // No nvidia-smi, skip GPU detection.
+		return nil
 	}
-
-	// Query: count, model, total memory, driver version.
-	out, err := exec.Command(smi,
-		"--query-gpu=count,name,memory.total,driver_version",
+	out, err := gpuProbeCmd(smi,
+		"--query-gpu=name,memory.total,driver_version",
 		"--format=csv,noheader,nounits",
-	).Output()
+	)
 	if err != nil {
-		return
+		return nil
 	}
-
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	if len(lines) == 0 {
-		return
+	devices, driver := parseNvidiaCSV(string(out))
+	if len(devices) == 0 {
+		return nil
 	}
-
-	// Parse first line for count and driver (same across GPUs).
-	// Format: "count, name, memory.total [MiB], driver_version"
-	// nvidia-smi repeats "count" on every line; it's the total GPU count.
-	var models []string
-	var totalVRAM int64
-	gpuCount := 0
-
-	for _, line := range lines {
-		fields := strings.SplitN(line, ", ", 4)
-		if len(fields) < 4 {
-			continue
-		}
-		gpuCount++
-		models = append(models, strings.TrimSpace(fields[1]))
-
-		// memory.total is in MiB.
-		if mib, err := strconv.ParseInt(strings.TrimSpace(fields[2]), 10, 64); err == nil {
-			totalVRAM += mib * 1024 * 1024 // MiB to bytes
-		}
-
-		// Driver is the same for all GPUs; take the last.
-		caps["gpu.driver"] = strings.TrimSpace(fields[3])
+	if driver != "" {
+		caps["gpu.driver"] = driver
 	}
-
-	if gpuCount > 0 {
-		caps["gpu.count"] = strconv.Itoa(gpuCount)
-		caps["gpu.vram"] = strconv.FormatInt(totalVRAM, 10)
-
-		// Deduplicate model names.
-		unique := dedup(models)
-		caps["gpu.model"] = strings.Join(unique, ", ")
-	}
-
-	// CUDA version from nvcc.
 	if nvcc, err := exec.LookPath("nvcc"); err == nil {
-		if out, err := exec.Command(nvcc, "--version").Output(); err == nil {
+		if out, err := gpuProbeCmd(nvcc, "--version"); err == nil {
 			if v := util.ParseCUDAVersion(string(out)); v != "" {
 				caps["gpu.cuda"] = v
 			}
 		}
 	}
+	return devices
+}
+
+// parseNvidiaCSV parses "name, memory.total[MiB], driver_version" lines from
+// nvidia-smi --format=csv,noheader,nounits into devices. Returns the devices
+// and the (shared) driver version.
+func parseNvidiaCSV(output string) (devices []gpuDevice, driver string) {
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.SplitN(line, ", ", 3)
+		if len(fields) < 3 {
+			continue
+		}
+		var vram int64
+		if mib, err := strconv.ParseInt(strings.TrimSpace(fields[1]), 10, 64); err == nil {
+			vram = mib * 1024 * 1024 // MiB -> bytes
+		}
+		devices = append(devices, gpuDevice{
+			vendor: "nvidia",
+			model:  strings.TrimSpace(fields[0]),
+			vram:   vram,
+		})
+		driver = strings.TrimSpace(fields[2])
+	}
+	return devices, driver
+}
+
+// detectAMDDevices probes rocm-smi (best-effort; output format varies by ROCm
+// version). Returns one device per reported card with VRAM when parseable.
+func detectAMDDevices() []gpuDevice {
+	smi, err := exec.LookPath("rocm-smi")
+	if err != nil {
+		return nil
+	}
+	out, err := gpuProbeCmd(smi, "--showproductname", "--showmeminfo", "vram", "--csv")
+	if err != nil {
+		return nil
+	}
+	return parseROCmCSV(string(out))
+}
+
+// parseROCmCSV parses rocm-smi --csv output. It is intentionally lenient: it
+// treats each data row whose first column names a card (e.g. "card0") as a
+// device, extracts the largest byte-valued column as VRAM, and joins remaining
+// text columns as the model. Returns nil if nothing card-like is found.
+func parseROCmCSV(output string) []gpuDevice {
+	var devices []gpuDevice
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		line = strings.TrimSpace(line)
+		cols := strings.Split(line, ",")
+		if len(cols) < 2 || !strings.HasPrefix(strings.ToLower(strings.TrimSpace(cols[0])), "card") {
+			continue
+		}
+		var vram int64
+		var modelParts []string
+		for _, c := range cols[1:] {
+			c = strings.TrimSpace(c)
+			if c == "" {
+				continue
+			}
+			if n, err := strconv.ParseInt(c, 10, 64); err == nil {
+				if n > vram {
+					vram = n // largest numeric column ~ VRAM bytes
+				}
+				continue
+			}
+			modelParts = append(modelParts, c)
+		}
+		model := "AMD GPU"
+		if len(modelParts) > 0 {
+			model = strings.Join(modelParts, " ")
+		}
+		devices = append(devices, gpuDevice{vendor: "amd", model: model, vram: vram})
+	}
+	return devices
+}
+
+// detectIntelDevices best-effort detects Intel data-center GPUs via xpu-smi.
+// VRAM is not reliably available from discovery, so it is left unset.
+func detectIntelDevices() []gpuDevice {
+	smi, err := exec.LookPath("xpu-smi")
+	if err != nil {
+		return nil
+	}
+	out, err := gpuProbeCmd(smi, "discovery", "--dump", "1")
+	if err != nil {
+		return nil
+	}
+	var devices []gpuDevice
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if strings.Contains(strings.ToLower(line), "device") && strings.Contains(line, "Intel") {
+			devices = append(devices, gpuDevice{vendor: "intel", model: "Intel GPU"})
+		}
+	}
+	return devices
 }
 
 func dedup(ss []string) []string {
