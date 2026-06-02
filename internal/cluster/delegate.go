@@ -16,7 +16,28 @@ type delegate struct {
 }
 
 func newDelegate(meta *NodeMeta, log *slog.Logger) (*delegate, error) {
-	return &delegate{meta: meta, log: log}, nil
+	return &delegate{meta: copyMeta(meta), log: log}, nil
+}
+
+// copyMeta returns a deep copy of m with its own Caps map and Tags slice, so
+// the delegate never aliases a caller's map. Without this, the periodic
+// capability refresh mutates the same map the delegate gossips, racing with
+// memberlist's concurrent NodeMeta() marshaling (concurrent map read/write).
+func copyMeta(m *NodeMeta) *NodeMeta {
+	if m == nil {
+		return nil
+	}
+	cp := *m
+	if m.Caps != nil {
+		cp.Caps = make(map[string]string, len(m.Caps))
+		for k, v := range m.Caps {
+			cp.Caps[k] = v
+		}
+	}
+	if m.Tags != nil {
+		cp.Tags = append([]string(nil), m.Tags...)
+	}
+	return &cp
 }
 
 // NodeMeta is called by memberlist to get the local node's metadata, bounded
@@ -58,9 +79,12 @@ func (d *delegate) currentMeta() *NodeMeta {
 }
 
 // UpdateMeta replaces the local node metadata (e.g. on capability refresh).
+// The metadata is deep-copied so the delegate never shares a mutable map with
+// the caller (which may keep mutating it on later refresh ticks).
 func (d *delegate) UpdateMeta(meta *NodeMeta) {
+	cp := copyMeta(meta)
 	d.mu.Lock()
-	d.meta = meta
+	d.meta = cp
 	d.cached = nil // invalidate; re-encoded lazily on next NodeMeta call
 	d.mu.Unlock()
 }
