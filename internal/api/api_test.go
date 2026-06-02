@@ -487,3 +487,44 @@ func TestAPI_SubmitBatch_PropagatesImageAndResources(t *testing.T) {
 		t.Errorf("batch did not propagate image/resources: image=%q res=%+v", tasks[0].Image, tasks[0].Resources)
 	}
 }
+
+func TestAPI_SubmitSweep_ExpandsAndSubstitutes(t *testing.T) {
+	ts := testServer(t)
+	resp := postJSON(t, ts.URL+"/api/v1/sweeps", map[string]any{
+		"template": map[string]any{"command": []string{"echo", "${i}"}},
+		"grid":     map[string]any{"i": []string{"a", "b", "c"}},
+	})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", resp.StatusCode)
+	}
+	var out struct {
+		SweepID string   `json:"sweep_id"`
+		Count   int      `json:"count"`
+		TaskIDs []string `json:"task_ids"`
+	}
+	decodeJSON(t, resp, &out)
+	if out.Count != 3 || len(out.TaskIDs) != 3 || out.SweepID == "" {
+		t.Fatalf("expected 3 tasks + sweep id, got count=%d ids=%d id=%q", out.Count, len(out.TaskIDs), out.SweepID)
+	}
+	// Fetch the first expanded task; its command must be substituted.
+	r2, err := http.Get(ts.URL + "/api/v1/tasks/" + out.TaskIDs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var task model.Task
+	decodeJSON(t, r2, &task)
+	if len(task.Command) != 2 || task.Command[1] != "a" {
+		t.Errorf("first sweep task command not substituted: %v", task.Command)
+	}
+}
+
+func TestAPI_SubmitSweep_EmptySpace(t *testing.T) {
+	ts := testServer(t)
+	resp := postJSON(t, ts.URL+"/api/v1/sweeps", map[string]any{
+		"template": map[string]any{"command": []string{"echo", "x"}},
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for empty parameter space, got %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}

@@ -38,6 +38,7 @@ func NewRootCmd(version, commit string) *cobra.Command {
 	root.AddCommand(newLogsCmd())
 	root.AddCommand(newDeadLetterCmd())
 	root.AddCommand(newBatchCmd())
+	root.AddCommand(newSweepCmd())
 	root.AddCommand(newPipelineCmd())
 
 	// Store operations

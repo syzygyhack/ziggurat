@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -43,21 +44,7 @@ func (s *Server) submitTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	task := &model.Task{
-		Command:     req.Command,
-		Env:         req.Env,
-		InputRefs:   req.InputRefs,
-		Artifacts:   req.Artifacts,
-		Params:      req.Params,
-		Requires:    req.Requires,
-		Constraints: req.Constraints,
-		Resources:   req.Resources,
-		Image:       req.Image,
-		Environment: req.Environment,
-		Config:      req.Config,
-	}
-
-	result, err := s.coord.Submit(r.Context(), task)
+	result, err := s.coord.Submit(r.Context(), reqToTask(req))
 	if err != nil {
 		// Resolution failures (missing input/artifact keys) are client errors.
 		status := http.StatusInternalServerError
@@ -86,49 +73,55 @@ func (s *Server) submitBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate all tasks before submitting any. Submission is best-effort
-	// atomic: if a later Submit fails, earlier tasks are cancelled. However,
-	// workers may dequeue and start tasks between individual Submit calls, so
-	// a rollback can cancel tasks that have already begun executing. True
-	// transactional semantics would require a held/pending state, which is
-	// deferred to Phase 2.
-	tasks := make([]*model.Task, len(reqs))
-	for i, req := range reqs {
-		if len(req.Command) == 0 {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("task[%d]: command is required", i))
-			return
-		}
-		tasks[i] = &model.Task{
-			Command:     req.Command,
-			Env:         req.Env,
-			InputRefs:   req.InputRefs,
-			Artifacts:   req.Artifacts,
-			Params:      req.Params,
-			Requires:    req.Requires,
-			Constraints: req.Constraints,
-			Resources:   req.Resources,
-			Image:       req.Image,
-			Environment: req.Environment,
-			Config:      req.Config,
-		}
-	}
-
-	// Submit all tasks. On failure, cancel any already-submitted tasks.
-	results := make([]*model.Task, 0, len(tasks))
-	for i, task := range tasks {
-		result, err := s.coord.Submit(r.Context(), task)
-		if err != nil {
-			// Rollback: cancel all previously submitted tasks.
-			for _, prev := range results {
-				s.coord.Cancel(prev.ID)
-			}
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("task[%d]: %v", i, err))
-			return
-		}
-		results = append(results, result)
+	results, badIdx, err := s.submitTaskBatch(r.Context(), reqs)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("task[%d]: %v", badIdx, err))
+		return
 	}
 
 	writeJSON(w, http.StatusCreated, results)
+}
+
+// reqToTask builds a model.Task from a submit request.
+func reqToTask(req submitTaskRequest) *model.Task {
+	return &model.Task{
+		Command:     req.Command,
+		Env:         req.Env,
+		InputRefs:   req.InputRefs,
+		Artifacts:   req.Artifacts,
+		Params:      req.Params,
+		Requires:    req.Requires,
+		Constraints: req.Constraints,
+		Resources:   req.Resources,
+		Image:       req.Image,
+		Environment: req.Environment,
+		Config:      req.Config,
+	}
+}
+
+// submitTaskBatch validates and submits a batch of task requests. Submission is
+// best-effort atomic: if a later Submit fails, earlier tasks are cancelled
+// (though workers may already have started them — true transactional semantics
+// are deferred to Phase 2). On the i-th failure it returns (nil, i, err);
+// on success returns (tasks, -1, nil).
+func (s *Server) submitTaskBatch(ctx context.Context, reqs []submitTaskRequest) ([]*model.Task, int, error) {
+	for i, req := range reqs {
+		if len(req.Command) == 0 {
+			return nil, i, fmt.Errorf("command is required")
+		}
+	}
+	results := make([]*model.Task, 0, len(reqs))
+	for i, req := range reqs {
+		result, err := s.coord.Submit(ctx, reqToTask(req))
+		if err != nil {
+			for _, prev := range results {
+				s.coord.Cancel(prev.ID)
+			}
+			return nil, i, err
+		}
+		results = append(results, result)
+	}
+	return results, -1, nil
 }
 
 func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {

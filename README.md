@@ -197,6 +197,7 @@ A GPU job (`--gpus N`) is placed only on nodes with enough free GPUs, which then
 | `ziggurat cancel <id>` | Cancel a task |
 | `ziggurat wait <id>` | Block until task completes |
 | `ziggurat batch --from <file>` | Submit batch from JSON/YAML |
+| `ziggurat sweep --grid k=v1,v2 -- <cmd with ${k}>` | Fan out a command template over a parameter grid |
 | `ziggurat dead-letter` | List dead-lettered tasks |
 | `ziggurat run --env <name> --env-setup <cmd>` | Submit with persistent environment |
 

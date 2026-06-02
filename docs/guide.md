@@ -202,6 +202,30 @@ Supported per-task fields match the API: `command`, `env`, `input_refs`,
 All tasks are submitted together. If any task fails validation, previously
 submitted tasks in the batch are cancelled.
 
+## Parameter Sweeps
+
+When you want to run one command across a grid of values — frames, samples,
+seeds, hyperparameters — use `sweep` instead of writing your own loop. Reference
+parameters as `${name}` in the command and supply each axis with `--grid`
+(repeatable). The coordinator expands the cartesian product into N independent
+tasks:
+
+```bash
+# 3 seeds x 2 learning rates = 6 GPU tasks
+ziggurat sweep --grid seed=1,2,3 --grid lr=0.1,0.01 --gpus 1 -- \
+  python train.py --seed '${seed}' --lr '${lr}'
+
+# render frames 1..N (one task per frame)
+ziggurat sweep --grid frame=1,2,3,4,5 -- blender -b scene.blend -f '${frame}'
+```
+
+Each expanded task is an ordinary task (it can require tags, request resources,
+run in a container, etc.), so the work fans out across the mesh like any other.
+The command prints a `sweep id` and the task count; track the tasks with
+`ziggurat tasks`. Substitution also applies to `--input` keys and env values.
+Over the API, `POST /api/v1/sweeps` takes `{template, grid}` (or `{template,
+points}` for an explicit list of points).
+
 ## Pipelines
 
 Pipelines define multi-stage DAGs where stages can depend on each other:

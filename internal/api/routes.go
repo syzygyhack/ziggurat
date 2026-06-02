@@ -14,6 +14,7 @@ func RegisterRoutes(r chi.Router, s *Server) {
 		// Tasks
 		r.Post("/tasks", s.submitTask)
 		r.Post("/tasks/batch", s.submitBatch)
+		r.Post("/sweeps", s.submitSweep)
 		r.Get("/tasks", s.listTasks)
 		r.Get("/tasks/{id}", s.getTask)
 		r.Delete("/tasks/{id}", s.cancelTask)

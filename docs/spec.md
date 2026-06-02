@@ -1593,7 +1593,7 @@ Multi-node mesh. Builds on 0a by adding discovery, gossip, replication, and dist
 Workload-driven features (see "Phase 2 Planning" below for rationale), highest
 doors-per-effort first:
 
-- [ ] **Parametric fan-out / sweep primitive** (P0) — expand one task template over a parameter space into N tasks
+- [x] **Parametric fan-out / sweep primitive** (P0) — expand one task template over a parameter space into N tasks (`POST /api/v1/sweeps`, `ziggurat sweep`)
 - [ ] **Global consumable resources / semaphores** (P0) — cluster-wide countable limits (license seats, API rate, DB conns)
 - [ ] **Warm / sticky worker pool** (decide deliberately, not now) — long-lived processes for expensive in-memory init
 
