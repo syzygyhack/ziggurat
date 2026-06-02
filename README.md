@@ -263,7 +263,7 @@ ziggurat/
 - **Content-addressed storage**: BLAKE3 hashing, integrity verified on read (verifyingReader), deduplication via refcounting
 - **Deterministic tar**: Sorted entries, normalized metadata (uid/gid 0, epoch mtime, fixed mode) — identical content always produces identical hashes across platforms
 - **Pull-based local scheduling**: Workers poll the coordinator via Dequeue; natural load balancing without push complexity
-- **Push-based cross-node dispatch**: Coordinator dispatches tasks to remote workers via gRPC, collects results, and replicates output back to the origin node
+- **Push-based cross-node dispatch**: Coordinator dispatches tasks to remote workers via gRPC, collects results, and replicates output back to the origin node. A hybrid node keeps runnable work local for locality, but **offloads overflow** — when its local worker is saturated and a peer has spare capacity, queued tasks spill to the peer, so a single submit point scales across the mesh.
 - **Persistent environments**: Fingerprint-based reuse of task environments (venvs, node_modules, etc.) — same deps = same env across tasks, rebuilt only when fingerprint changes
 - **Pipeline DAGs**: Kahn's algorithm cycle detection, `$stage.output` reference resolution, transitive failure cancellation
 - **Platform-split process management**: `process_unix.go` (SIGTERM/SIGKILL via process groups) and `process_windows.go` (CREATE_NEW_PROCESS_GROUP + TerminateProcess)

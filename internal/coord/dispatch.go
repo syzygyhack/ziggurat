@@ -136,6 +136,14 @@ func (d *Dispatcher) dispatchBatch(ctx context.Context) {
 				aff := t.Config.Affinity
 				return aff != "" && aff != d.localID && d.coord.WorkerHasCapacity(aff)
 			})
+			// Overflow offload: when the local worker is saturated and a peer
+			// has spare capacity, spill queued locally-runnable work to it so a
+			// single submit point still scales across the mesh.
+			if task == nil {
+				if task = d.popOverflow(); task != nil {
+					d.log.Debug("offloading overflow task (local worker saturated)", "task", task.ID)
+				}
+			}
 		}
 		if task == nil {
 			return
@@ -273,47 +281,87 @@ func (d *Dispatcher) collectResults(ctx context.Context) {
 	}
 }
 
+// popOverflow returns a queued, locally-runnable task to offload to a peer —
+// but only when the local worker is saturated (no free slots) and at least one
+// remote node has spare capacity AND can run the task. While the local worker
+// has free slots it returns nil, so work stays local for locality; offloading
+// only kicks in for genuine overflow. Affinity-pinned tasks are left to the
+// affinity path. This is what lets a single submit point scale across hybrid
+// nodes instead of queueing behind a saturated local worker.
+func (d *Dispatcher) popOverflow() *model.Task {
+	running, limit := d.coord.workerLoad.Load(d.localID)
+	if running < limit {
+		return nil // local worker has capacity; keep work local
+	}
+	var avail []*model.Node
+	for _, n := range d.registry.List() {
+		if n.ID == d.localID || n.Role == model.RoleCoordinator {
+			continue
+		}
+		if d.coord.workerLoad.HasCapacity(n.ID) {
+			avail = append(avail, n)
+		}
+	}
+	if len(avail) == 0 {
+		return nil // no peer with spare capacity to receive overflow
+	}
+	// Pop the highest-priority queued task that some available peer can run.
+	// Skipping tasks no peer can run avoids a head-of-line task blocking the
+	// rest from offloading.
+	runnableRemotely := func(t *model.Task) bool {
+		if t.Config.Affinity != "" {
+			return false // affinity handled by the affinity path, not overflow
+		}
+		for _, n := range avail {
+			if d.nodeCanRun(t, n) {
+				return true
+			}
+		}
+		return false
+	}
+	return d.coord.queue.Pop(d.localTags, d.localCaps, runnableRemotely)
+}
+
+// nodeCanRun reports whether a remote node can execute the task: it is not the
+// local node, not a coordinator, matches the task's tags/constraints/resources/
+// runtime, and has remaining resource capacity.
+func (d *Dispatcher) nodeCanRun(task *model.Task, n *model.Node) bool {
+	if n.ID == d.localID || n.Role == model.RoleCoordinator {
+		return false
+	}
+	tagSet := make(map[string]bool, len(n.Tags))
+	for _, t := range n.Tags {
+		tagSet[t] = true
+	}
+	if !matchesTags(task.Requires, tagSet) {
+		return false
+	}
+	if !MatchesConstraints(task.Constraints, n.Capabilities) {
+		return false
+	}
+	if !matchesResources(task.Resources, n.Capabilities) {
+		return false
+	}
+	if !matchesRuntime(task, n.Capabilities) {
+		return false
+	}
+	c := scheduler.Candidate{NodeID: n.ID, Tags: n.Tags, Caps: n.Capabilities}
+	return scheduler.Fits(task, c, d.coord.workerLoad)
+}
+
 // buildCandidates returns scheduler candidates from cluster nodes that
 // can run the given task (matching tags, constraints, resources, and
 // role != coordinator). The local node is excluded.
 func (d *Dispatcher) buildCandidates(task *model.Task) []scheduler.Candidate {
-	nodes := d.registry.List()
-	tagSet := func(tags []string) map[string]bool {
-		m := make(map[string]bool, len(tags))
-		for _, t := range tags {
-			m[t] = true
-		}
-		return m
-	}
-
 	var candidates []scheduler.Candidate
-	for _, n := range nodes {
-		if n.ID == d.localID {
-			continue // skip self
-		}
-		if n.Role == model.RoleCoordinator {
-			continue // coordinators don't execute tasks
-		}
-		if !matchesTags(task.Requires, tagSet(n.Tags)) {
-			continue
-		}
-		if !MatchesConstraints(task.Constraints, n.Capabilities) {
-			continue
-		}
-		if !matchesResources(task.Resources, n.Capabilities) {
-			continue
-		}
-		if !matchesRuntime(task, n.Capabilities) {
+	for _, n := range d.registry.List() {
+		if !d.nodeCanRun(task, n) {
 			continue
 		}
 		c := scheduler.Candidate{
 			NodeID: n.ID,
 			Tags:   n.Tags,
 			Caps:   n.Capabilities,
-		}
-		// Check dynamic resource availability (total - currently allocated).
-		if !scheduler.Fits(task, c, d.coord.workerLoad) {
-			continue
 		}
 		candidates = append(candidates, c)
 	}
