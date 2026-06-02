@@ -512,20 +512,36 @@ Every node probes the following at startup (no configuration needed):
 |-----|------|---------|--------|
 | `os` | string | `linux`, `darwin`, `windows` | `runtime.GOOS` |
 | `arch` | string | `amd64`, `arm64` | `runtime.GOARCH` |
-| `cpu.cores` | int | `16` | `runtime.NumCPU()` |
-| `mem.total` | int (bytes) | `34359738368` | System query (platform-specific) |
+| `cpu.cores` | int | `16` | logical CPUs, capped by cgroup CPU quota |
+| `mem.total` | int (bytes) | `34359738368` | physical RAM, capped by cgroup memory limit |
 | `disk.avail` | int (bytes) | `107374182400` | Available space on `data_dir` volume |
+| `storage.class` | string | `ssd`, `nvme`, `hdd` | block-device probe (seek-penalty on Windows) |
 | `hostname` | string | `lab-gpu-03` | `os.Hostname()` |
+| `compute.concurrency` | int | `16` | task slots (`compute.concurrency` or CPU count) |
+| `container.runtime` | string | `podman`, `docker` | `PATH` lookup (omitted if none) |
+| `ziggurat.version` | string | `0.3.0` | build version (tagged builds only) |
 
-GPU detection runs only when a CUDA/ROCm runtime is present:
+Language runtimes are probed via `--version` (omitted if absent):
+
+| Key | Example | Source |
+|-----|---------|--------|
+| `python.version` | `3.12.1` | `python3`/`python --version` |
+| `node.version`, `go.version`, `java.version`, `ruby.version`, `rust.version` | `20.11.0`, … | each runtime's version command |
+
+GPU detection (NVIDIA full; AMD `rocm-smi`, Intel `xpu-smi` best-effort):
 
 | Key | Type | Example | Source |
 |-----|------|---------|--------|
-| `gpu.count` | int | `2` | nvidia-smi / rocm-smi |
-| `gpu.model` | string | `NVIDIA A100` | First GPU model (or comma-separated if heterogeneous) |
-| `gpu.vram` | int (bytes) | `85899345920` | Total VRAM across all GPUs |
+| `gpu.count` | int | `2` | nvidia-smi / rocm-smi / xpu-smi |
+| `gpu.model` | string | `NVIDIA A100` | model(s), comma-separated if heterogeneous |
+| `gpu.vendor` | string | `nvidia` | vendor(s) detected |
+| `gpu.vram` | int (bytes) | `85899345920` | total VRAM summed across all GPUs |
+| `gpu.vram.max` | int (bytes) | `42949672960` | largest single-device VRAM (use for per-GPU sizing) |
+| `gpu.<i>.model`, `gpu.<i>.vram` | per-device | — | per-GPU model and VRAM |
 | `gpu.cuda` | string | `12.4` | CUDA toolkit version |
 | `gpu.driver` | string | `550.54.15` | Driver version |
+
+Operators can add arbitrary probes via `node.capability_probes` (e.g. a `torch.version` command) for facts not covered above.
 
 Auto-detection is best-effort. If a probe fails (e.g., no GPU, no nvidia-smi), the key is omitted. Missing keys never cause errors -- they simply mean the capability isn't advertised.
 

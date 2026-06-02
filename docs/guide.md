@@ -130,7 +130,7 @@ ziggurat run \
 | `--input name=key` | Named store reference, fetched into workspace |
 | `--artifact key` | Store key extracted into workspace root |
 | `--param key=val` | Key-value parameter passed to the task |
-| `--image ref` | OCI image reference (future) |
+| `--image ref` | Run the task in an OCI container (routed to nodes advertising a container runtime) |
 | `--keep-workspace` | Don't clean up workspace on failure |
 | `--max-output 1GB` | Output size limit |
 | `--gpus N` | GPU devices required |
@@ -179,18 +179,25 @@ ziggurat dead-letter
 Submit multiple tasks at once from a YAML file:
 
 ```yaml
-# batch.yaml
+# batch.yaml — fields mirror `ziggurat run` and the task API
 - command: [python3, train.py, --seed, "1"]
   requires: [gpu]
+  resources: {gpus: 1, cpu_cores: 4}     # memory is in bytes if set
 - command: [python3, train.py, --seed, "2"]
-  requires: [gpu]
-- command: [python3, train.py, --seed, "3"]
-  requires: [gpu]
+  constraints: ["python.version >= 3.10"]
+  environment: {name: ml-env}            # reuse a persistent environment
+  config: {priority: 10}
+- command: [run]
+  image: docker.io/library/python:3.12   # OCI container execution
 ```
 
 ```bash
 ziggurat batch --from batch.yaml
 ```
+
+Supported per-task fields match the API: `command`, `env`, `input_refs`,
+`artifacts`, `params`, `requires`, `constraints`, `resources`, `environment`,
+`image`, and `config`.
 
 All tasks are submitted together. If any task fails validation, previously
 submitted tasks in the batch are cancelled.
