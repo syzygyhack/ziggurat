@@ -2,7 +2,6 @@ package coord
 
 import (
 	"runtime"
-	"sort"
 	"strconv"
 	"sync"
 
@@ -39,12 +38,31 @@ func NewWorkerLoad() *WorkerLoad {
 func (wl *WorkerLoad) Load(nodeID string) (running, limit int) {
 	wl.mu.RLock()
 	defer wl.mu.RUnlock()
-	r := wl.running[nodeID]
+	return wl.running[nodeID], wl.limitLocked(nodeID)
+}
+
+// limitLocked returns the effective concurrency limit for a node, falling back
+// to the local CPU count when unset. The caller must hold wl.mu (read or write).
+func (wl *WorkerLoad) limitLocked(nodeID string) int {
 	l := wl.limits[nodeID]
 	if l == 0 {
 		l = runtime.GOMAXPROCS(0) // default to local CPU count
 	}
-	return r, l
+	return l
+}
+
+// HasCapacity reports whether a known node is running fewer tasks than its
+// concurrency limit. Returns false for unknown nodes (no limit recorded — e.g.
+// departed or never seen), so callers treat them as unavailable. Used to decide
+// whether to honor node affinity to a remote node.
+func (wl *WorkerLoad) HasCapacity(nodeID string) bool {
+	wl.mu.RLock()
+	defer wl.mu.RUnlock()
+	limit, known := wl.limits[nodeID]
+	if !known || limit <= 0 {
+		return false
+	}
+	return wl.running[nodeID] < limit
 }
 
 // TaskStarted increments the running count for a worker.
@@ -151,41 +169,33 @@ func (wl *WorkerLoad) Snapshot() map[string][2]int {
 	defer wl.mu.RUnlock()
 	snap := make(map[string][2]int, len(wl.running))
 	for id, r := range wl.running {
-		l := wl.limits[id]
-		if l == 0 {
-			l = runtime.GOMAXPROCS(0)
-		}
-		snap[id] = [2]int{r, l}
+		snap[id] = [2]int{r, wl.limitLocked(id)}
 	}
 	return snap
 }
 
-// OverloadedWorkers returns node IDs with queue depth > 2x the median running count.
-// These are candidates for having their queued tasks redistributed.
+// OverloadedWorkers returns nodes running more tasks than their own
+// concurrency limit — an oversubscribed backlog whose excess is necessarily in
+// SCHEDULED (not-yet-running) state and thus safe to redistribute.
+//
+// This is capacity-aware: it compares each node's running count against that
+// node's own limit, so a high-capacity node is not flagged for merely running
+// many tasks (the previous raw-count-vs-median heuristic penalised powerful
+// nodes and could never fire in a two-node cluster). If no node is
+// oversubscribed, or fewer than two workers are known, returns nil. When work
+// is stolen but no node has spare capacity, the dispatcher's existing
+// no-candidate path simply re-queues it — no duplicate execution.
 func (wl *WorkerLoad) OverloadedWorkers() []string {
 	wl.mu.RLock()
 	defer wl.mu.RUnlock()
 
-	if len(wl.running) < 2 {
-		return nil
-	}
-
-	// Calculate median load.
-	var loads []int
-	for _, r := range wl.running {
-		loads = append(loads, r)
-	}
-	sort.Ints(loads)
-	median := loads[len(loads)/2]
-
-	threshold := 2 * median
-	if threshold < 2 {
-		threshold = 2 // minimum threshold to avoid thrashing
+	if len(wl.limits) < 2 {
+		return nil // need at least two known workers to redistribute
 	}
 
 	var overloaded []string
 	for id, r := range wl.running {
-		if r > threshold {
+		if r > wl.limitLocked(id) {
 			overloaded = append(overloaded, id)
 		}
 	}

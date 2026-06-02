@@ -128,21 +128,12 @@ func TestDispatcher_StealWork_RequeuesFromOverloaded(t *testing.T) {
 	d.dispatched[submitted.ID] = "worker-2:7101"
 	d.dispatchedMu.Unlock()
 
-	// Simulate worker-1 being heavily overloaded: add many more running tasks.
-	// OverloadedWorkers needs >= 2 workers and running > 2x median.
-	// With only 2 workers, median is the higher value, so we need more
-	// workers to bring the median down.
-	//
-	// After MarkDispatched: worker-1=2, worker-2=1.
-	// Add worker-3 and worker-4 with 1 task each, then inflate worker-1.
-	// sorted = [1, 1, 1, 10], median = loads[2] = 1
-	// threshold = max(2*1, 2) = 2
-	// worker-1 (10) > 2 → overloaded.
-	c.workerLoad.TaskStarted("worker-3")
-	c.workerLoad.TaskStarted("worker-4")
-	for i := 0; i < 8; i++ {
-		c.workerLoad.TaskStarted("worker-1")
-	}
+	// Capacity-aware overload: a worker is overloaded when its running count
+	// exceeds its own concurrency limit, while another worker has spare room.
+	// Give worker-1 a small limit and oversubscribe it; worker-2 keeps headroom.
+	// After MarkDispatched: worker-1=2 (limit 1 → oversubscribed), worker-2=1.
+	c.workerLoad.SetLimit("worker-1", 1)
+	c.workerLoad.SetLimit("worker-2", 8)
 
 	// Verify worker-1 is overloaded.
 	overloaded := c.workerLoad.OverloadedWorkers()

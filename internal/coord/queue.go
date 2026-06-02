@@ -111,11 +111,12 @@ func applyFilters(t *model.Task, filters []func(*model.Task) bool) bool {
 	return true
 }
 
-// PopForRemote removes and returns the highest-priority task that does
-// NOT match the local worker's tags, constraints, or resources. These
-// are tasks that can only be executed by a remote node. Returns nil if
-// every queued task already matches the local capabilities.
-func (q *Queue) PopForRemote(localTags []string, localCaps map[string]string) *model.Task {
+// PopForRemote removes and returns the highest-priority task that the local
+// worker should not run: either it does NOT match the local worker's tags,
+// constraints, or resources, or the optional prefersRemote predicate reports
+// that it is pinned (by affinity) to another node that can take it. Returns
+// nil if every queued task should run locally. prefersRemote may be nil.
+func (q *Queue) PopForRemote(localTags []string, localCaps map[string]string, prefersRemote func(*model.Task) bool) *model.Task {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -129,8 +130,10 @@ func (q *Queue) PopForRemote(localTags []string, localCaps map[string]string) *m
 		localMatch := matchesTags(entry.task.Requires, tagSet) &&
 			evalCachedConstraints(entry.constraints, localCaps) &&
 			matchesResources(entry.task.Resources, localCaps)
-		if localMatch {
-			continue // local worker can handle this one
+		// Skip tasks the local worker can run, unless affinity pins them to a
+		// remote node that currently has capacity.
+		if localMatch && (prefersRemote == nil || !prefersRemote(entry.task)) {
+			continue
 		}
 		if bestIdx < 0 || q.heap.Less(i, bestIdx) {
 			bestIdx = i

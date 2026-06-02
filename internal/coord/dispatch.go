@@ -129,8 +129,13 @@ func (d *Dispatcher) dispatchBatch(ctx context.Context) {
 			// Coordinator-only: dispatch everything (no local worker).
 			task = d.coord.queue.PopAny()
 		} else {
-			// Hybrid: only dispatch tasks that can't run locally.
-			task = d.coord.queue.PopForRemote(d.localTags, d.localCaps)
+			// Hybrid: dispatch tasks that can't run locally, plus tasks pinned
+			// by affinity to another node that currently has capacity (the
+			// local worker yields these via the matching check in Dequeue).
+			task = d.coord.queue.PopForRemote(d.localTags, d.localCaps, func(t *model.Task) bool {
+				aff := t.Config.Affinity
+				return aff != "" && aff != d.localID && d.coord.WorkerHasCapacity(aff)
+			})
 		}
 		if task == nil {
 			return

@@ -333,6 +333,17 @@ func (c *Coordinator) Dequeue(tags []string, caps map[string]string, workerID st
 			cand := scheduler.Candidate{NodeID: workerID, Caps: caps}
 			return scheduler.Fits(t, cand, c.workerLoad)
 		})
+		// Honor node affinity: if a task prefers a different node that is alive
+		// and has spare capacity, leave it queued for the dispatcher to send
+		// there. Fall back to local execution when the preferred node is full
+		// or gone, so affinity stays a soft preference and never starves a task.
+		filters = append(filters, func(t *model.Task) bool {
+			aff := t.Config.Affinity
+			if aff == "" || aff == workerID {
+				return true
+			}
+			return !c.workerLoad.HasCapacity(aff)
+		})
 	}
 
 	t := c.queue.Pop(tags, caps, filters...)
@@ -597,6 +608,13 @@ func (c *Coordinator) SetWorkerLimitFromCaps(nodeID string, caps map[string]stri
 // ClearWorker drops all load and limit tracking for a departed node.
 func (c *Coordinator) ClearWorker(nodeID string) {
 	c.workerLoad.ClearWorker(nodeID)
+}
+
+// WorkerHasCapacity reports whether a known node is currently below its
+// concurrency limit. Used to decide whether a task's node affinity can be
+// honored (yield to remote dispatch) or should fall back to local execution.
+func (c *Coordinator) WorkerHasCapacity(nodeID string) bool {
+	return c.workerLoad.HasCapacity(nodeID)
 }
 
 // MarkRunning transitions a task to RUNNING state. Returns false if the task

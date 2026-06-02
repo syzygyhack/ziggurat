@@ -60,6 +60,81 @@ func TestSetWorkerLimitFromCaps(t *testing.T) {
 	}
 }
 
+func TestOverloadedWorkers_CapacityAware(t *testing.T) {
+	wl := NewWorkerLoad()
+	// Two-node cluster: a small node oversubscribed, a big node with headroom.
+	wl.SetLimit("small", 2)
+	wl.SetLimit("big", 16)
+	for i := 0; i < 5; i++ { // small: 5 running > limit 2 → overloaded
+		wl.TaskStarted("small")
+	}
+	for i := 0; i < 10; i++ { // big: 10 running < limit 16 → not overloaded
+		wl.TaskStarted("big")
+	}
+
+	got := wl.OverloadedWorkers()
+	if len(got) != 1 || got[0] != "small" {
+		t.Fatalf("OverloadedWorkers = %v, want [small]", got)
+	}
+
+	// The big node running MORE tasks than the small node is still not flagged:
+	// capacity-aware, not raw-count. (Old median heuristic would mis-rank these.)
+	if containsStr(got, "big") {
+		t.Error("big node should not be overloaded — it is within its limit")
+	}
+}
+
+func TestOverloadedWorkers_NoneWhenWithinLimits(t *testing.T) {
+	wl := NewWorkerLoad()
+	wl.SetLimit("a", 4)
+	wl.SetLimit("b", 4)
+	wl.TaskStarted("a")
+	wl.TaskStarted("a")
+	wl.TaskStarted("b")
+	if got := wl.OverloadedWorkers(); len(got) != 0 {
+		t.Errorf("OverloadedWorkers = %v, want none (all within limits)", got)
+	}
+}
+
+func TestOverloadedWorkers_NeedsTwoWorkers(t *testing.T) {
+	wl := NewWorkerLoad()
+	wl.SetLimit("solo", 1)
+	wl.TaskStarted("solo")
+	wl.TaskStarted("solo") // oversubscribed, but no peer to receive
+	if got := wl.OverloadedWorkers(); got != nil {
+		t.Errorf("OverloadedWorkers = %v, want nil with a single worker", got)
+	}
+}
+
+func TestHasCapacity(t *testing.T) {
+	wl := NewWorkerLoad()
+	wl.SetLimit("node", 2)
+
+	if !wl.HasCapacity("node") {
+		t.Error("idle node with limit 2 should have capacity")
+	}
+	wl.TaskStarted("node")
+	if !wl.HasCapacity("node") {
+		t.Error("node at 1/2 should have capacity")
+	}
+	wl.TaskStarted("node")
+	if wl.HasCapacity("node") {
+		t.Error("node at 2/2 should NOT have capacity")
+	}
+	if wl.HasCapacity("unknown") {
+		t.Error("unknown node should report no capacity (treated as unavailable)")
+	}
+}
+
+func containsStr(s []string, v string) bool {
+	for _, x := range s {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
 func TestClearWorker(t *testing.T) {
 	c := New(nil, nil, TaskDefaults{}, quietLogger())
 	c.SetWorkerLimitFromCaps("gone", map[string]string{"cpu.cores": "12"})
