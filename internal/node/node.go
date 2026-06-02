@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -175,7 +176,16 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 	// Detect and merge node capabilities.
 	caps := DetectCapabilities(dataDir)
 	caps = MergeCapabilities(caps, cfg.Node.Capabilities)
+	// Advertise this node's task concurrency limit so remote coordinators
+	// score its load against its own capacity, not theirs. Set unconditionally
+	// (after the merge) so an operator can't accidentally shadow it via
+	// node.capabilities with a value that disagrees with the worker loop.
+	concurrency := worker.EffectiveConcurrency(cfg.Compute)
+	caps["compute.concurrency"] = strconv.Itoa(concurrency)
 	log.Info("node capabilities", "caps", caps)
+
+	// Record the local worker's concurrency limit for load-based scheduling.
+	c.SetWorkerLimitFromCaps(nodeID, caps)
 
 	// Initialize log broadcaster for live task log streaming (SSE).
 	logBroadcaster := worker.NewLogBroadcaster()
@@ -212,6 +222,8 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 			if n > 0 {
 				log.Info("requeued tasks from departed node", "node", departedID, "count", n)
 			}
+			// Drop the departed node's load/limit tracking.
+			c.ClearWorker(departedID)
 			if repl != nil {
 				// Purge stale placements BEFORE repair so the repair pass
 				// doesn't count the departed node toward the replication factor.
@@ -225,6 +237,11 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 		cl.Registry.OnJoin(func(joinedID string) {
 			if joinedID == nodeID {
 				return // skip self
+			}
+			// Record the joined worker's concurrency limit for load-based
+			// scheduling, derived from its advertised capabilities.
+			if jn, ok := cl.Registry.Get(joinedID); ok {
+				c.SetWorkerLimitFromCaps(joinedID, jn.Capabilities)
 			}
 			if repl != nil {
 				repl.TriggerRebalance(repairCtx, joinedID)

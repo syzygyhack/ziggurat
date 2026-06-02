@@ -3,6 +3,7 @@ package coord
 import (
 	"runtime"
 	"sort"
+	"strconv"
 	"sync"
 
 	"github.com/syzygyhack/ziggurat/internal/scheduler"
@@ -117,6 +118,31 @@ func (wl *WorkerLoad) SetLimit(nodeID string, limit int) {
 	wl.mu.Lock()
 	wl.limits[nodeID] = limit
 	wl.mu.Unlock()
+}
+
+// ClearWorker removes all load, limit, and allocation tracking for a node.
+// Called when a node departs the cluster so its stale entries don't linger.
+func (wl *WorkerLoad) ClearWorker(nodeID string) {
+	wl.mu.Lock()
+	delete(wl.running, nodeID)
+	delete(wl.limits, nodeID)
+	delete(wl.alloc, nodeID)
+	wl.mu.Unlock()
+}
+
+// concurrencyLimitFromCaps derives a worker's concurrency limit from its
+// advertised capabilities: compute.concurrency if present, else cpu.cores.
+// Returns 0 if neither is available or parseable (caller leaves the limit
+// unset, falling back to the local CPU count).
+func concurrencyLimitFromCaps(caps map[string]string) int {
+	for _, key := range []string{"compute.concurrency", "cpu.cores"} {
+		if v, ok := caps[key]; ok {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				return n
+			}
+		}
+	}
+	return 0
 }
 
 // Snapshot returns the current load state for all workers.

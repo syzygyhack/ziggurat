@@ -49,13 +49,21 @@ func (w *Worker) SetLogBroadcaster(lb *LogBroadcaster) {
 	w.logBroadcaster = lb
 }
 
+// EffectiveConcurrency returns the worker's task concurrency limit: the
+// configured compute.concurrency, or the host CPU count when unset (<= 0).
+// This is the single source of truth used both by the worker loop and by
+// the node when advertising its limit to the cluster scheduler.
+func EffectiveConcurrency(cfg config.ComputeConfig) int {
+	if cfg.Concurrency > 0 {
+		return cfg.Concurrency
+	}
+	return runtime.GOMAXPROCS(0)
+}
+
 // Run starts the worker loop, waiting for tasks from the coordinator.
 // Respects compute.concurrency: launches up to cfg.Concurrency goroutines.
 func (w *Worker) Run(ctx context.Context) {
-	concurrency := w.cfg.Concurrency
-	if concurrency <= 0 {
-		concurrency = runtime.GOMAXPROCS(0)
-	}
+	concurrency := EffectiveConcurrency(w.cfg)
 
 	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup

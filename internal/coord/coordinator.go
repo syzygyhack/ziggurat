@@ -584,6 +584,21 @@ func (c *Coordinator) UnregisterCancel(id string) {
 	c.cancelMu.Unlock()
 }
 
+// SetWorkerLimitFromCaps records a worker's task concurrency limit (derived
+// from its advertised capabilities) for load-based scheduling. Without this,
+// every node's load factor would be computed against the local coordinator's
+// CPU count rather than the node's own capacity.
+func (c *Coordinator) SetWorkerLimitFromCaps(nodeID string, caps map[string]string) {
+	if limit := concurrencyLimitFromCaps(caps); limit > 0 {
+		c.workerLoad.SetLimit(nodeID, limit)
+	}
+}
+
+// ClearWorker drops all load and limit tracking for a departed node.
+func (c *Coordinator) ClearWorker(nodeID string) {
+	c.workerLoad.ClearWorker(nodeID)
+}
+
 // MarkRunning transitions a task to RUNNING state. Returns false if the task
 // has already been cancelled (e.g. between Dequeue and MarkRunning), in which
 // case the worker should skip execution.
