@@ -64,6 +64,14 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 	log := slog.New(handler)
 
+	// Enforce one node per machine. Windows+WSL and separate machines use
+	// distinct lock paths, so they remain valid for local multi-node dev.
+	releaseLock, err := node.AcquireSingleInstance()
+	if err != nil {
+		return err
+	}
+	defer releaseLock()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

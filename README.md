@@ -51,6 +51,8 @@ Nodes discover each other via gossip (memberlist). By default every node runs as
 ./ziggurat start --role worker --join 10.0.0.5:7102
 ```
 
+**One node per machine.** `ziggurat start` refuses to launch if another node is already running on the same OS (a node manages all of the machine's cores, RAM, and GPUs by itself). For local multi-node development, run nodes on **Windows + WSL** or on **separate machines** — both use distinct lock paths and join normally.
+
 ## Configuration
 
 Ziggurat works out of the box with no config file. To customize, run `ziggurat init` to generate a commented template at `~/.ziggurat/ziggurat.yaml`, then edit as needed.
