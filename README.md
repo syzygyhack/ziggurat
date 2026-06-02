@@ -231,8 +231,25 @@ File permissions (`0o755`/`0o644`) are specified but only enforced on Linux; Win
 
 - **Commands must be real executables.** Task commands are executed directly, not through a shell. On Windows, shell built-ins like `echo`, `dir`, `set`, and `type` are *not* programs and will fail with "executable file not found". Wrap them: `ziggurat run -- cmd /c echo hello` (or invoke an interpreter, e.g. `python script.py`).
 - **Firewall.** Zero-config LAN discovery needs inbound traffic allowed for the gossip port (TCP+UDP `7102`), the gRPC port (`7101`), the HTTP API (`7100`), and mDNS (UDP `5353`). On first run, allow `ziggurat.exe` through Windows Defender Firewall on **private** networks, or peers won't discover/reach each other.
-- **Advertise address.** If the machine has WSL2 or Docker installed, the node may auto-select a `172.16–31.x.x` bridge address that other machines can't reach. Ziggurat warns when it detects this — set `network.advertise` to the machine's real LAN IP in `~/.ziggurat/ziggurat.yaml`.
+- **Advertise address.** If the machine has Docker or a WSL2 bridge on a `172.16–31.x.x` subnet, the node may auto-select that address — unreachable from other machines. Ziggurat warns when it detects this range; set `network.advertise` to the machine's real LAN IP in `~/.ziggurat/ziggurat.yaml`.
 - **Persistent environments.** Python venvs on Windows place executables in `Scripts\` (vs `bin/` on Unix); both are added to `PATH` automatically.
+
+### Running inside WSL2
+
+By default WSL2 uses **NAT networking**: the Linux instance sits on a private subnet (e.g. `192.168.239.x` / `172.x`) behind the Windows host, *not* on your LAN. A node started inside WSL2 can reach the mesh **outbound** (so `--join` and even task execution appear to work), but it advertises its private WSL address, which **other physical machines cannot route to**. The node ends up only half-connected: reachable from its own host, invisible to the rest of the LAN. mDNS auto-discovery also won't cross the NAT boundary.
+
+Note that the private subnet is often a `192.168.x` range indistinguishable from a real LAN by address alone, so Ziggurat cannot reliably warn about it — the symptom is simply that peers on other machines never see the WSL node.
+
+To make a WSL2 node a real LAN member, choose one:
+
+1. **Mirrored networking (recommended, Windows 11 22H2+).** Give WSL the host's LAN identity. In `C:\Users\<you>\.wslconfig`:
+   ```ini
+   [wsl2]
+   networkingMode=mirrored
+   ```
+   Then `wsl --shutdown` and restart. The WSL node now joins and is discovered like a native host.
+2. **Run the node natively on Windows** instead of inside WSL — simplest, and the intended deployment.
+3. **Manual port-forward (advanced).** Keep NAT, set `network.advertise` to the Windows host's LAN IP, and forward the gossip/gRPC/HTTP ports from the host into WSL with `netsh interface portproxy`. Fiddly and easy to get wrong; prefer options 1–2.
 
 ## Monitoring
 
