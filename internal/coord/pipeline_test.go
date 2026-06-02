@@ -322,3 +322,37 @@ func TestPipeline_CycleDetection(t *testing.T) {
 		t.Fatal("expected error for cyclic pipeline")
 	}
 }
+
+// Regression: $stage.output forwarding must produce the dependency's output
+// NAMESPACE KEY (output/<taskID>), not the raw content hash — the dependent
+// stage is submitted through Submit→ResolveRefs, which resolves namespace
+// keys. Forwarding the hash made every output-dependent pipeline stage fail
+// with "namespace key not found".
+func TestResolveOutputRefs_ForwardsNamespaceKey(t *testing.T) {
+	c, pm, _ := setupPipelineTest(t)
+
+	up, err := c.Submit(context.Background(), &model.Task{Command: []string{"echo", "x"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.MarkRunning(up.ID, "worker-1") {
+		t.Fatal("MarkRunning failed")
+	}
+	if err := c.Complete(up.ID, 0, "", "", "", "deadbeefcafef00d", 0); err != nil {
+		t.Fatal(err)
+	}
+
+	p := &model.Pipeline{Stages: []model.Stage{
+		{ID: "a", TaskID: up.ID},
+		{ID: "b", InputRefs: map[string]string{"prev": "$a.output"}},
+	}}
+	resolved := pm.resolveOutputRefs(p, &p.Stages[1])
+
+	want := "output/" + up.ID
+	if resolved["prev"] != want {
+		t.Errorf("resolved[prev] = %q, want %q (namespace key, not the raw hash)", resolved["prev"], want)
+	}
+	if resolved["prev"] == "deadbeefcafef00d" {
+		t.Error("forwarded the raw content hash — would fail namespace resolution at submit")
+	}
+}

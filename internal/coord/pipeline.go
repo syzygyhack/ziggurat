@@ -336,7 +336,13 @@ func (pm *PipelineManager) resolveOutputRefs(p *model.Pipeline, s *model.Stage) 
 			for _, ds := range p.Stages {
 				if ds.ID == stageID && ds.TaskID != "" {
 					if t, err := pm.coord.Get(ds.TaskID); err == nil && t.OutputRef != "" {
-						resolved[k] = t.OutputRef
+						// Forward the dependency's output by its namespace key
+						// ("output/<taskID>", where task outputs are stored), NOT
+						// the raw content hash: the dependent stage is submitted
+						// through Submit→ResolveRefs, which resolves namespace
+						// keys. Passing a hash here fails ("namespace key not
+						// found").
+						resolved[k] = fmt.Sprintf("output/%s", ds.TaskID)
 						continue
 					}
 				}
