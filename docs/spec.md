@@ -1039,6 +1039,10 @@ ziggurat run ./compute_cross_section --input data=nuclear/endf-b8 \
 
 ziggurat batch --from tasks.yaml     # Submit batch from YAML file           [1]
 
+ziggurat sweep --grid <k>=<v1,v2> -- <cmd with ${k}>   # Fan out a template over a grid [2]
+  --grid <name>=<v1,v2,...>         # Parameter axis (repeatable; cartesian product)
+  # plus run-like flags: --require --constraint --gpus --cpus --memory --image --priority
+
 ziggurat pipeline submit <file>      # Submit a pipeline definition          [1]
 ziggurat pipeline status <id>        # Pipeline status + stage results       [1]
 ziggurat pipeline cancel <id>        # Cancel pipeline                       [1]
@@ -1094,6 +1098,8 @@ ziggurat version                     # Binary version + build info           [0a
 ```
 # Tasks                                                            Phase
 POST   /api/v1/tasks                Submit task                     [0a]
+POST   /api/v1/tasks/batch          Submit a batch of tasks         [1]
+POST   /api/v1/sweeps               Expand template over a grid     [2]
 GET    /api/v1/tasks                List tasks                      [0a]
 GET    /api/v1/tasks/:id            Get task detail                 [0a]
 DELETE /api/v1/tasks/:id            Cancel task                     [0a]
