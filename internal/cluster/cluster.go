@@ -23,10 +23,10 @@ type Config struct {
 	Seeds         []string
 	Tags          []string
 	Caps          map[string]string
-	Role          string // "hybrid", "coordinator", "worker"
-	Discovery     string // "auto", "mdns", "seeds", "static" — controls peer discovery
-	ClusterName   string // logical cluster name for mDNS filtering
-	JoinToken     string // shared secret for cluster join (empty = open)
+	Role          string        // "hybrid", "coordinator", "worker"
+	Discovery     string        // "auto", "mdns", "seeds", "static" — controls peer discovery
+	ClusterName   string        // logical cluster name for mDNS filtering
+	JoinToken     string        // shared secret for cluster join (empty = open)
 	JoinTimeout   time.Duration // timeout for initial join attempt (0 = default 10s)
 }
 

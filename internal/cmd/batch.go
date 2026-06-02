@@ -56,7 +56,6 @@ func runBatch(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("batch file contains no tasks")
 	}
 
-
 	// Convert to JSON for the API call (yaml tags match json tags).
 	jsonData, err := json.Marshal(tasks)
 	if err != nil {

@@ -23,7 +23,7 @@ type enrollRequest struct {
 
 // enrollResponse is returned on successful enrollment.
 type enrollResponse struct {
-	Cert   string `json:"cert"`   // PEM-encoded signed certificate
+	Cert   string `json:"cert"`    // PEM-encoded signed certificate
 	CACert string `json:"ca_cert"` // PEM-encoded CA certificate
 }
 

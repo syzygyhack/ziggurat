@@ -71,7 +71,7 @@ func (s *Server) getObject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		hash = store.NormalizeHashHex(hash)
-			rc, err = s.store.GetByHash(r.Context(), hash)
+		rc, err = s.store.GetByHash(r.Context(), hash)
 	} else {
 		rc, err = s.store.Get(r.Context(), key)
 	}

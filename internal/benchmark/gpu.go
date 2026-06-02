@@ -11,7 +11,7 @@ import (
 // GPUInfo describes detected GPU hardware.
 type GPUInfo struct {
 	Count   int      `json:"count"`
-	Model   string   `json:"model,omitempty"`   // comma-separated if heterogeneous
+	Model   string   `json:"model,omitempty"`    // comma-separated if heterogeneous
 	VRAMMiB int64    `json:"vram_mib,omitempty"` // total across all GPUs
 	Driver  string   `json:"driver,omitempty"`
 	CUDA    string   `json:"cuda,omitempty"`
@@ -20,13 +20,13 @@ type GPUInfo struct {
 
 // GPUDev describes a single GPU device.
 type GPUDev struct {
-	Index      int    `json:"index"`
-	Name       string `json:"name"`
-	VRAMMiB    int64  `json:"vram_mib"`
-	TempC      int    `json:"temp_c,omitempty"`       // current temperature
-	PowerW     int    `json:"power_w,omitempty"`      // current power draw
-	PowerCapW  int    `json:"power_cap_w,omitempty"`  // power limit
-	Utilization int   `json:"utilization,omitempty"`  // GPU core utilization %
+	Index       int    `json:"index"`
+	Name        string `json:"name"`
+	VRAMMiB     int64  `json:"vram_mib"`
+	TempC       int    `json:"temp_c,omitempty"`      // current temperature
+	PowerW      int    `json:"power_w,omitempty"`     // current power draw
+	PowerCapW   int    `json:"power_cap_w,omitempty"` // power limit
+	Utilization int    `json:"utilization,omitempty"` // GPU core utilization %
 }
 
 // DetectGPU probes nvidia-smi for GPU information. Returns nil if no
@@ -123,4 +123,3 @@ func parseIntOrFloat(s string) int {
 	}
 	return 0
 }
-

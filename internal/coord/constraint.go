@@ -86,7 +86,6 @@ func MatchesConstraints(constraints []string, caps map[string]string) bool {
 	return true
 }
 
-
 func compareInt(a int64, op string, b int64) bool {
 	switch op {
 	case "==":

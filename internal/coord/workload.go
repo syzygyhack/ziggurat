@@ -13,8 +13,8 @@ import (
 // scheduler.ResourceTracker.
 type WorkerLoad struct {
 	mu      sync.RWMutex
-	running map[string]int // nodeID -> running task count
-	limits  map[string]int // nodeID -> concurrency limit
+	running map[string]int         // nodeID -> running task count
+	limits  map[string]int         // nodeID -> concurrency limit
 	alloc   map[string]*allocState // nodeID -> allocated resources
 }
 

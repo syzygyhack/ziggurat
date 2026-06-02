@@ -106,13 +106,13 @@ type ResilienceConfig struct {
 }
 
 type SecurityConfig struct {
-	TLS       TLSConfig  `yaml:"tls"`
-	JoinToken string     `yaml:"join_token"` // shared secret for cluster join
-	APIToken  string     `yaml:"api_token"`  // bearer token for HTTP API (empty = no auth)
+	TLS       TLSConfig `yaml:"tls"`
+	JoinToken string    `yaml:"join_token"` // shared secret for cluster join
+	APIToken  string    `yaml:"api_token"`  // bearer token for HTTP API (empty = no auth)
 }
 
 type TLSConfig struct {
-	Enabled bool   `yaml:"enabled"` // enable mTLS for gRPC
+	Enabled  bool   `yaml:"enabled"`   // enable mTLS for gRPC
 	CertsDir string `yaml:"certs_dir"` // override cert directory (default: data_dir/certs)
 }
 
@@ -334,4 +334,3 @@ func (c *Config) Validate() error {
 
 	return nil
 }
-

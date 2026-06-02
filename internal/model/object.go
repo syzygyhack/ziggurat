@@ -72,8 +72,8 @@ type ErasureParams struct {
 	ParityShards int      `json:"parity_shards"`
 	OriginalSize int64    `json:"original_size"`
 	ShardSize    int64    `json:"shard_size"`
-	ShardHashes  []string `json:"shard_hashes"`            // hex-encoded BLAKE3 per shard
-	ShardNodes   []string `json:"shard_nodes,omitempty"`   // nodeID per shard index; set by origin during distribution
+	ShardHashes  []string `json:"shard_hashes"`          // hex-encoded BLAKE3 per shard
+	ShardNodes   []string `json:"shard_nodes,omitempty"` // nodeID per shard index; set by origin during distribution
 }
 
 // StorageClass indicates the type of storage hardware a node provides.

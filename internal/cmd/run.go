@@ -111,7 +111,6 @@ func runRun(cmd *cobra.Command, args []string) error {
 		body["image"] = runImage
 	}
 
-
 	// Build environment sub-object.
 	if runEnvSetup != "" && runEnv == "" && len(runEnvFingerprint) == 0 {
 		return fmt.Errorf("--env-setup requires --env (environment name) or --env-fingerprint to be reusable")
@@ -259,4 +258,3 @@ func runRun(cmd *cobra.Command, args []string) error {
 
 	return nil
 }
-

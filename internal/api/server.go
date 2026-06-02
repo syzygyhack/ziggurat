@@ -25,23 +25,23 @@ type NodeLister interface {
 
 // Server is the HTTP API server for Ziggurat.
 type Server struct {
-	router           *chi.Mux
-	srv              *http.Server
-	coord            *coord.Coordinator
-	store            *store.Store
-	nodes            NodeLister
-	log              *slog.Logger
-	startTime        time.Time
-	maxUploadSize    int64      // 0 = no limit
-	underReplicated  func() int // optional; returns under-replicated object count
-	onDrain          func()     // optional; triggers shard migration on drain
-	pipelines        *coord.PipelineManager
-	role             string     // "hybrid", "coordinator", "worker"
-	logBroadcaster   *worker.LogBroadcaster
-	rateLimiter      *RateLimiter
-	caCertPath       string // for worker enrollment (coordinator only)
-	caKeyPath        string // for worker enrollment (coordinator only)
-	joinToken        string // for worker enrollment validation
+	router          *chi.Mux
+	srv             *http.Server
+	coord           *coord.Coordinator
+	store           *store.Store
+	nodes           NodeLister
+	log             *slog.Logger
+	startTime       time.Time
+	maxUploadSize   int64      // 0 = no limit
+	underReplicated func() int // optional; returns under-replicated object count
+	onDrain         func()     // optional; triggers shard migration on drain
+	pipelines       *coord.PipelineManager
+	role            string // "hybrid", "coordinator", "worker"
+	logBroadcaster  *worker.LogBroadcaster
+	rateLimiter     *RateLimiter
+	caCertPath      string // for worker enrollment (coordinator only)
+	caKeyPath       string // for worker enrollment (coordinator only)
+	joinToken       string // for worker enrollment validation
 }
 
 // New creates an API server (single-node mode).

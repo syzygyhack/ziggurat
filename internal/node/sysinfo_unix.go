@@ -161,4 +161,3 @@ func detectStorageClass(path string) string {
 	}
 	return "ssd"
 }
-

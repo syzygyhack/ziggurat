@@ -13,12 +13,12 @@ type PeerResult struct {
 	NodeID  string  `json:"node_id"`
 	Name    string  `json:"name,omitempty"`
 	Address string  `json:"address"`
-	RTTMin  float64 `json:"rtt_min_ms"`  // minimum RTT in milliseconds
-	RTTAvg  float64 `json:"rtt_avg_ms"`  // average RTT in milliseconds
-	RTTP50  float64 `json:"rtt_p50_ms"`  // median RTT
-	RTTP99  float64 `json:"rtt_p99_ms"`  // 99th percentile RTT
-	RTTMax  float64 `json:"rtt_max_ms"`  // maximum RTT in milliseconds
-	Loss    float64 `json:"loss_pct"`    // packet loss percentage
+	RTTMin  float64 `json:"rtt_min_ms"` // minimum RTT in milliseconds
+	RTTAvg  float64 `json:"rtt_avg_ms"` // average RTT in milliseconds
+	RTTP50  float64 `json:"rtt_p50_ms"` // median RTT
+	RTTP99  float64 `json:"rtt_p99_ms"` // 99th percentile RTT
+	RTTMax  float64 `json:"rtt_max_ms"` // maximum RTT in milliseconds
+	Loss    float64 `json:"loss_pct"`   // packet loss percentage
 	Error   string  `json:"error,omitempty"`
 }
 

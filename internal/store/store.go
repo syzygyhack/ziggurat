@@ -40,8 +40,8 @@ type Store struct {
 	db           *bbolt.DB
 	log          *slog.Logger
 	onPut        func(ctx context.Context, hashHex string) // optional post-Put callback (e.g. replication)
-	erasure      *ErasureCodec                              // nil when erasure coding disabled
-	shardFetcher ShardFetcher                               // optional; enables cross-node EC reconstruction
+	erasure      *ErasureCodec                             // nil when erasure coding disabled
+	shardFetcher ShardFetcher                              // optional; enables cross-node EC reconstruction
 }
 
 // New creates a Store rooted at the given data directory.
@@ -645,7 +645,7 @@ func (s *Store) Unpin(hashHex string) error {
 
 // StorageStats holds aggregate statistics about the object store.
 type StorageStats struct {
-	Objects  int   `json:"objects"`
+	Objects   int   `json:"objects"`
 	UsedBytes int64 `json:"used_bytes"`
 	Capacity  int64 `json:"capacity"` // 0 = unlimited
 }

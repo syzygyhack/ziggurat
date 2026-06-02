@@ -16,4 +16,3 @@ func TestFileExists_TempFile(t *testing.T) {
 		t.Errorf("FileExists(%q) should be true for existing directory", f)
 	}
 }
-

@@ -62,9 +62,9 @@ func (r *Role) UnmarshalJSON(data []byte) error {
 type Node struct {
 	ID           string            `json:"id"`
 	Name         string            `json:"name"`
-	Address      string            `json:"address"`       // gossip address (host:port)
-	HTTPAddress  string            `json:"http_address"`   // HTTP API address (host:port)
-	GRPCAddress  string            `json:"grpc_address"`   // gRPC transport address (host:port)
+	Address      string            `json:"address"`      // gossip address (host:port)
+	HTTPAddress  string            `json:"http_address"` // HTTP API address (host:port)
+	GRPCAddress  string            `json:"grpc_address"` // gRPC transport address (host:port)
 	Role         Role              `json:"role"`
 	Tags         []string          `json:"tags"`
 	Capabilities map[string]string `json:"capabilities,omitempty"`

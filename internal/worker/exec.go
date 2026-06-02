@@ -366,7 +366,7 @@ func uploadOutput(ctx context.Context, s *store.Store, outputDir, taskID string)
 	hash, err := s.Put(ctx, nsKey, pr)
 	if err != nil {
 		pr.Close() // unblock writer goroutine so errCh drain won't hang
-		<-errCh     // wait for goroutine to finish to avoid leak
+		<-errCh    // wait for goroutine to finish to avoid leak
 		return "", err
 	}
 

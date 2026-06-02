@@ -251,4 +251,3 @@ func testHashHex(data []byte) string {
 	h := testHash(data)
 	return hex.EncodeToString(h[:])
 }
-

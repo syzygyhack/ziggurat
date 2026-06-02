@@ -16,19 +16,19 @@ import (
 
 // LocalResult holds the results of local machine benchmarks.
 type LocalResult struct {
-	CPU    CPUResult    `json:"cpu"`
-	Memory MemResult    `json:"memory"`
-	Disk   DiskResult   `json:"disk"`
-	GPU    *GPUInfo     `json:"gpu,omitempty"`
-	System SystemInfo   `json:"system"`
+	CPU    CPUResult  `json:"cpu"`
+	Memory MemResult  `json:"memory"`
+	Disk   DiskResult `json:"disk"`
+	GPU    *GPUInfo   `json:"gpu,omitempty"`
+	System SystemInfo `json:"system"`
 }
 
 // CPUResult captures CPU benchmark metrics.
 type CPUResult struct {
-	BLAKE3SingleMBps  float64 `json:"blake3_single_mbps"`  // single-core BLAKE3 throughput
+	BLAKE3SingleMBps   float64 `json:"blake3_single_mbps"`   // single-core BLAKE3 throughput
 	BLAKE3ParallelMBps float64 `json:"blake3_parallel_mbps"` // all-core BLAKE3 throughput
-	Cores             int     `json:"cores"`
-	ScalingEfficiency float64 `json:"scaling_efficiency"`  // parallel / (single * cores), 0-1
+	Cores              int     `json:"cores"`
+	ScalingEfficiency  float64 `json:"scaling_efficiency"` // parallel / (single * cores), 0-1
 }
 
 // MemResult captures memory bandwidth benchmark metrics.
@@ -171,8 +171,8 @@ func benchMemory() MemResult {
 
 const (
 	diskBenchSize  = 64 * 1024 * 1024 // 64 MB total
-	diskChunkSize  = 1024 * 1024       // 1 MB per write
-	fsyncIterCount = 50                // number of fsync samples
+	diskChunkSize  = 1024 * 1024      // 1 MB per write
+	fsyncIterCount = 50               // number of fsync samples
 )
 
 func benchDisk(dir string) (DiskResult, error) {

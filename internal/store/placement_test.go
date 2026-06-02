@@ -60,7 +60,7 @@ func TestSelectNodes_PrefersBestClass(t *testing.T) {
 
 func TestSelectNodes_SkipsInsufficientSpace(t *testing.T) {
 	candidates := []NodeInfo{
-		{ID: "small", StorageClass: model.StorageClassSSD, FreeBytes: 100},  // too small
+		{ID: "small", StorageClass: model.StorageClassSSD, FreeBytes: 100}, // too small
 		{ID: "big", StorageClass: model.StorageClassSSD, FreeBytes: 10 << 30},
 	}
 

@@ -131,7 +131,6 @@ func runPipelineSubmit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("parse pipeline file: %w", err)
 	}
 
-
 	// Convert to JSON for the API.
 	jsonData, err := json.Marshal(def)
 	if err != nil {
@@ -249,4 +248,3 @@ func runPipelineRetry(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Pipeline %s retrying from failed stage.\n", shortID(id))
 	return nil
 }
-

@@ -18,7 +18,7 @@ type Registry struct {
 	log     *slog.Logger
 	onJoin  func(nodeID string) // optional callback when a new node joins
 	onLeave func(nodeID string) // optional callback when a node departs
-	Ring    *HashRing            // consistent hash ring, updated on join/leave
+	Ring    *HashRing           // consistent hash ring, updated on join/leave
 }
 
 // NewRegistry creates an empty node registry with a consistent hash ring.

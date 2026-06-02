@@ -4,9 +4,9 @@ import "testing"
 
 func TestParseByteSize(t *testing.T) {
 	tests := []struct {
-		input    string
-		want     int64
-		wantErr  bool
+		input   string
+		want    int64
+		wantErr bool
 	}{
 		{"10GB", 10 << 30, false},
 		{"1TB", 1 << 40, false},

@@ -34,9 +34,9 @@ func CheckSchema(db *bbolt.DB, dbName string, codeVersion uint64) error {
 		}
 
 		if len(data) < 8 {
-				return fmt.Errorf("%s: corrupt schema_version (got %d bytes, need 8)", dbName, len(data))
-			}
-			dbVersion := binary.BigEndian.Uint64(data)
+			return fmt.Errorf("%s: corrupt schema_version (got %d bytes, need 8)", dbName, len(data))
+		}
+		dbVersion := binary.BigEndian.Uint64(data)
 
 		if dbVersion == codeVersion {
 			return nil // exact match

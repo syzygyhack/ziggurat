@@ -14,9 +14,9 @@ var (
 // NewRootCmd creates the root command with all subcommands registered.
 func NewRootCmd(version, commit string) *cobra.Command {
 	root := &cobra.Command{
-		Use:   "ziggurat",
-		Short: "Distributed research compute mesh",
-		Long:  `Ziggurat is a distributed compute mesh with integrated content-addressed storage for research workloads.`,
+		Use:           "ziggurat",
+		Short:         "Distributed research compute mesh",
+		Long:          `Ziggurat is a distributed compute mesh with integrated content-addressed storage for research workloads.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}

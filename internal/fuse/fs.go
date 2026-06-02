@@ -11,8 +11,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"sync"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -376,4 +376,3 @@ func storeURL(apiBase, key string) string {
 	}
 	return apiBase + "/api/v1/store/" + strings.Join(segments, "/")
 }
-

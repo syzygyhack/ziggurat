@@ -91,11 +91,11 @@ func (s *TaskStatus) UnmarshalJSON(data []byte) error {
 
 // Task represents a unit of work submitted to the cluster.
 type Task struct {
-	ID        string            `json:"id"`
-	Command   []string          `json:"command"`
-	Env       map[string]string `json:"env,omitempty"`
-	InputRefs map[string]string `json:"input_refs,omitempty"` // name -> content hash (resolved at submission)
-	Artifacts []string          `json:"artifacts,omitempty"`  // content hashes (resolved at submission)
+	ID          string            `json:"id"`
+	Command     []string          `json:"command"`
+	Env         map[string]string `json:"env,omitempty"`
+	InputRefs   map[string]string `json:"input_refs,omitempty"` // name -> content hash (resolved at submission)
+	Artifacts   []string          `json:"artifacts,omitempty"`  // content hashes (resolved at submission)
 	Params      map[string]string `json:"params,omitempty"`
 	Requires    []string          `json:"requires,omitempty"`
 	Constraints []string          `json:"constraints,omitempty"` // capability constraint expressions
@@ -105,17 +105,17 @@ type Task struct {
 	Config      TaskConfig        `json:"config"`
 
 	// Set by coordinator / worker.
-	Status       TaskStatus `json:"status"`
-	Attempt      int        `json:"attempt"`
-	Worker       string     `json:"worker,omitempty"`
-	RemoteOrigin bool       `json:"remote_origin,omitempty"` // true if accepted via dispatch (no local refcounts)
-	OutputRef string      `json:"output_ref,omitempty"`
-	Stdout    string      `json:"stdout,omitempty"`
-	Stderr    string      `json:"stderr,omitempty"`
-	ExitCode  int         `json:"exit_code"`
-	Error     string      `json:"error,omitempty"`
-	Metrics   TaskMetrics `json:"metrics"`
-	CreatedAt time.Time   `json:"created_at"`
+	Status       TaskStatus  `json:"status"`
+	Attempt      int         `json:"attempt"`
+	Worker       string      `json:"worker,omitempty"`
+	RemoteOrigin bool        `json:"remote_origin,omitempty"` // true if accepted via dispatch (no local refcounts)
+	OutputRef    string      `json:"output_ref,omitempty"`
+	Stdout       string      `json:"stdout,omitempty"`
+	Stderr       string      `json:"stderr,omitempty"`
+	ExitCode     int         `json:"exit_code"`
+	Error        string      `json:"error,omitempty"`
+	Metrics      TaskMetrics `json:"metrics"`
+	CreatedAt    time.Time   `json:"created_at"`
 }
 
 // ResourceReq specifies optional resource requests for scheduler admission.

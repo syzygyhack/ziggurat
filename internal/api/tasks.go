@@ -15,11 +15,11 @@ import (
 
 // submitTaskRequest is the JSON body for POST /api/v1/tasks.
 type submitTaskRequest struct {
-	Command   []string          `json:"command"`
-	Env       map[string]string `json:"env,omitempty"`
-	InputRefs map[string]string `json:"input_refs,omitempty"`
-	Artifacts []string          `json:"artifacts,omitempty"`
-	Params    map[string]string `json:"params,omitempty"`
+	Command     []string               `json:"command"`
+	Env         map[string]string      `json:"env,omitempty"`
+	InputRefs   map[string]string      `json:"input_refs,omitempty"`
+	Artifacts   []string               `json:"artifacts,omitempty"`
+	Params      map[string]string      `json:"params,omitempty"`
 	Requires    []string               `json:"requires,omitempty"`
 	Constraints []string               `json:"constraints,omitempty"`
 	Resources   model.ResourceReq      `json:"resources,omitempty"`

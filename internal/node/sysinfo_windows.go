@@ -16,7 +16,7 @@ func detectCPUCores() int {
 }
 
 var (
-	kernel32              = syscall.NewLazyDLL("kernel32.dll")
+	kernel32               = syscall.NewLazyDLL("kernel32.dll")
 	procGetDiskFreeSpaceEx = kernel32.NewProc("GetDiskFreeSpaceExW")
 )
 
