@@ -1108,6 +1108,7 @@ GET    /api/v1/tasks/:id/logs       Stream stdout/stderr (SSE)      [1]
 
 # Pipelines
 POST   /api/v1/pipelines            Submit pipeline                 [1]
+GET    /api/v1/pipelines            List pipelines                  [1]
 GET    /api/v1/pipelines/:id        Pipeline status + stages        [1]
 POST   /api/v1/pipelines/:id/retry  Retry from failed stage         [1]
 DELETE /api/v1/pipelines/:id        Cancel pipeline                 [1]
@@ -1122,7 +1123,11 @@ DELETE /api/v1/store/*key/pin       Unpin object                    [0b]
 
 # Cluster
 GET    /api/v1/cluster              Cluster status                  [0a]
-GET    /api/v1/cluster/nodes        Node list with load + tags      [0b]
+GET    /api/v1/nodes                Node list with load + tags      [0b]
+GET    /api/v1/nodes/:id            Node detail                     [0b]
+POST   /api/v1/drain                Stop accepting work (drain)     [0b]
+POST   /api/v1/resume               Resume accepting work           [0b]
+POST   /api/v1/cluster/enroll       Enroll a node (mTLS CSR sign)   [1]
 GET    /api/v1/health               Health check                    [0a]
 GET    /metrics                     Prometheus metrics               [1]
 ```

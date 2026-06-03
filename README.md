@@ -4,7 +4,7 @@ Distributed research compute mesh. Single Go binary — drop it on any machine, 
 
 Tasks are arbitrary commands: any script, binary, or pipeline that runs on the worker's OS. Ziggurat manages workspaces, fetches inputs from content-addressed storage, executes the command, captures output, and uploads results. No SDK required.
 
-Runs on **Linux** and **Windows**.
+Runs on **Linux**, **macOS** (Apple Silicon), and **Windows**.
 
 ## Quick Start
 
@@ -279,16 +279,16 @@ When a node leaves the cluster, the coordinator re-queues the tasks it was runni
 
 ## Cross-Platform Notes
 
-Ziggurat runs on Linux and Windows. Platform-specific code is isolated via build tags:
+Ziggurat runs on Linux, macOS (Apple Silicon), and Windows. macOS and Linux share the Unix code paths; only memory/disk detection differs. Platform-specific code is isolated via build tags:
 
-| Concern | Linux | Windows |
-|---------|-------|---------|
-| Process groups | `Setpgid` + `SIGTERM`/`SIGKILL` | `CREATE_NEW_PROCESS_GROUP` + `TerminateProcess` |
-| Graceful shutdown signals | `SIGINT` + `SIGTERM` | `SIGINT` only |
-| Memory detection | `syscall.Sysinfo` | `GlobalMemoryStatusEx` |
-| Disk space detection | `syscall.Statfs` | `GetDiskFreeSpaceExW` |
+| Concern | Linux | macOS | Windows |
+|---------|-------|-------|---------|
+| Process groups | `Setpgid` + `SIGTERM`/`SIGKILL` | `Setpgid` + `SIGTERM`/`SIGKILL` | `CREATE_NEW_PROCESS_GROUP` + `TerminateProcess` |
+| Graceful shutdown signals | `SIGINT` + `SIGTERM` | `SIGINT` + `SIGTERM` | `SIGINT` only |
+| Memory detection | `syscall.Sysinfo` (cgroup-aware) | `sysctl hw.memsize` | `GlobalMemoryStatusEx` |
+| Disk space detection | `syscall.Statfs` | `unix.Statfs` | `GetDiskFreeSpaceExW` |
 
-File permissions (`0o755`/`0o644`) are specified but only enforced on Linux; Windows ignores them. Tar archives use forward-slash paths regardless of OS for cross-platform determinism.
+File permissions (`0o755`/`0o644`) are specified but only enforced on Linux and macOS; Windows ignores them. Tar archives use forward-slash paths regardless of OS for cross-platform determinism. The FUSE mount (`ziggurat mount`) requires a kernel FUSE provider — built in on Linux, macFUSE on macOS; it is not available on Windows.
 
 ### Windows gotchas for LAN use
 
@@ -359,7 +359,11 @@ Or use the Makefile (injects version/commit automatically):
 make build              # build for the host OS (ziggurat, or ziggurat.exe on Windows)
 make install            # build and copy to ~/.local/bin (%USERPROFILE%\.local\bin on Windows)
 make windows            # cross-compile ziggurat.exe for Windows amd64
+make dist               # cross-compile all release targets into dist/
 ```
+
+`make dist` produces binaries for `linux/amd64`, `linux/arm64`, `darwin/arm64`, and
+`windows/amd64` — the same set published as assets on each tagged GitHub Release.
 
 The Makefile works both under a POSIX shell (Linux, macOS, Git Bash/MSYS2) and under
 `cmd.exe`/PowerShell on Windows. FUSE `mount` is excluded from Windows builds.
@@ -371,3 +375,7 @@ Requires Go 1.24+. No CGo dependencies.
 ```bash
 go test ./...
 ```
+
+## License
+
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for the full text.
