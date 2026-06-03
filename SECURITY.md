@@ -56,7 +56,9 @@ Relevant areas include, but are not limited to:
 For deployments beyond a trusted LAN, enable:
 
 - mTLS between nodes (`security.tls.enabled=true`) and a cluster join token.
-- API bearer-token authentication.
+- API bearer-token authentication (`security.api_token`). Note: this is enforced
+  server-side, but the bundled `ziggurat` CLI does not yet send the token, so
+  set it only when driving the HTTP API directly.
 - A firewall restricting the gossip, gRPC, and HTTP ports to known peers.
 
 See the README's security and cross-platform sections for details.

@@ -509,6 +509,12 @@ resilience:
   task_retries: 2                 # default retry count
   dead_letter: true               # enable dead letter queue
 
+security:
+  tls:
+    enabled: false                # mTLS for inter-node gRPC (coordinator acts as CA)
+  join_token: ""                  # shared secret to join the cluster (empty = open)
+  api_token: ""                   # bearer token required by the HTTP API (empty = no auth)
+
 metrics:
   enabled: true                   # expose /metrics endpoint
 ```
@@ -521,6 +527,58 @@ Client commands (everything except `start`) resolve the server address in this o
 2. `ZIGGURAT_ADDR` environment variable
 3. `client.addr` in config file
 4. `127.0.0.1:7100` (default)
+
+## Security
+
+Ziggurat's defaults assume a **trusted LAN**: TLS, join tokens, and API auth are
+all off and nodes bind every interface. Anyone who can reach the ports can join
+the cluster and run commands on your machines. Before exposing a node to an
+untrusted network, enable the controls below — they are configured under the
+`security` block in `ziggurat.yaml` (there are no security CLI flags), and the
+same values must be set on every node.
+
+### Cluster join token
+
+A shared secret, HMAC-validated during gossip, so only nodes that present it can
+join. Generate one and put it in each node's config:
+
+```bash
+ziggurat token generate          # prints a random token
+```
+
+```yaml
+security:
+  join_token: "<token>"          # identical on every node
+```
+
+### mTLS between nodes
+
+Encrypts and mutually authenticates all inter-node gRPC. The coordinator acts as
+the certificate authority; certs are generated and stored under the data dir,
+and workers automatically enroll for a signed certificate using the join token.
+
+```yaml
+security:
+  tls:
+    enabled: true                # set on every node; pair with a join_token
+```
+
+### API authentication
+
+`api_token` makes the HTTP API require an `Authorization: Bearer <token>` header:
+
+```yaml
+security:
+  api_token: "<token>"
+```
+
+> **Caveat:** the API token is enforced **server-side**, but the bundled
+> `ziggurat` CLI does not yet send it — setting `api_token` will lock the CLI
+> out (`401`). For now, use it only when you drive the API directly (e.g.
+> `curl -H "Authorization: Bearer <token>" ...`); leave it empty if you rely on
+> the CLI. CLI support is planned.
+
+Encryption at rest is **not yet implemented** (Phase 2).
 
 ## JSON Output
 

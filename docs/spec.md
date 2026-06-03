@@ -983,8 +983,10 @@ Individual settings override mode presets.
 
 ## CLI Interface
 
-Commands are annotated with their implementation phase. Phase 0a commands are
-available now; later phases are planned.
+Commands are annotated with the phase that introduced them. All commands listed
+below are implemented; the only outstanding work is the unchecked items in
+[Implementation Status](#implementation-status) (e.g. Raft failover, global
+semaphores, encryption at rest).
 
 ```bash
 # ── Cluster Lifecycle ──────────────────────────────
@@ -992,7 +994,7 @@ available now; later phases are planned.
 ziggurat start                       # Start coordinator+worker (hybrid)     [0a]
 ziggurat start --role coordinator    # Coordinator only, no compute          [0a]
 ziggurat start --role worker --join 10.0.0.5:7102  # Worker only             [0a]
-ziggurat start --join auto           # Join via mDNS                         [0b]
+ziggurat start                       # Auto-discover peers via mDNS (cluster.discovery: auto, the default)  [0b]
 ziggurat start --join 10.0.0.5:7102  # Join via explicit address             [0a]
 
 ziggurat stop                        # Graceful shutdown                     [0b]
@@ -1395,21 +1397,37 @@ GET /api/v1/health
 
 ---
 
-## Security Model (Phase 1+)
+## Security Model
 
-MVP assumes trusted LAN. Phase 1 adds:
+Zero-config defaults assume a **trusted LAN**: TLS, join tokens, and API auth
+are all off, and the node binds all interfaces. The following controls are
+**implemented** and should be enabled before exposing a node to an untrusted
+network — all are configured under the `security` block (no CLI flags):
 
-- **mTLS**: All inter-node gRPC uses mutual TLS. Coordinator acts as CA.
-- **Join tokens**: New nodes must present a token to join the cluster.
-- **API auth**: HTTP API requires bearer token (static secret or JWT).
-- **Encryption at rest**: Storage shards encrypted with node-local key.
+- **mTLS** (`security.tls.enabled: true`): all inter-node gRPC uses mutual TLS.
+  The coordinator acts as the CA; certificates are generated/loaded under the
+  data dir, and workers enroll for a signed cert using the join token.
+- **Join tokens** (`security.join_token`): a shared secret HMAC-validated during
+  gossip, so only nodes that present it can join. Set the same value in every
+  node's config.
+- **API auth** (`security.api_token`): the HTTP API requires a
+  `Authorization: Bearer <token>` header.
+
+Planned (Phase 2):
+
+- **Encryption at rest**: storage shards encrypted with a node-local key.
 
 ```bash
-# Generate cluster token
-ziggurat token generate > cluster.token
+# Generate a random join token to share across nodes
+ziggurat token generate
 
-# Node joins with token
-ziggurat start --join auto --token $(cat cluster.token)
+# Then set it (and enable TLS + an API token) in each node's
+# ~/.ziggurat/ziggurat.yaml before starting:
+#   security:
+#     tls:
+#       enabled: true
+#     join_token: "<token>"
+#     api_token: "<token>"
 ```
 
 ---
@@ -1544,8 +1562,8 @@ Multi-node mesh. Builds on 0a by adding discovery, gossip, replication, and dist
 - [x] Integration test harness
 - [x] Task log streaming (SSE)
 - [x] Persistent environments (fingerprint-based reuse)
-- [ ] Container execution (OCI image support via Podman)
-- [ ] mTLS + join tokens
+- [x] Container execution (OCI image support via Podman/Docker)
+- [x] mTLS + join tokens + API bearer auth
 
 ### Phase 2: Advanced
 
@@ -1645,24 +1663,25 @@ task-per-exec throws that away every time.
 
 ### Gating dependency: isolation (containers + cgroups)
 
-Container execution (Podman) and cgroup resource-limit enforcement are **load-bearing**
-for a whole tier — they are the unchecked Phase 1/2 boxes. Until they land, these
-entities are **unreachable** because they run mutually-distrusting or untrusted code:
+Container execution (Podman/Docker) is implemented, but **hard isolation** is not:
+cgroup resource-limit enforcement (the unchecked Phase 2 box) and rootless/sandbox
+hardening are load-bearing for a whole tier. Until they land, these entities remain
+**unreachable** because they run mutually-distrusting or untrusted code:
 - CS autograders (untrusted student submissions)
 - Malware / sample detonation
 - Multi-tenant teaching clusters
 - Any shop running mutually-distrusting jobs
 
-Implication: if the isolation-gated tier is a target, **containers + cgroups move up
-the priority list**.
+Implication: if the isolation-gated tier is a target, **cgroup limits + isolation
+hardening move up the priority list** (container execution itself is already done).
 
 ### Prioritization summary
 
 - **Most doors per unit effort:** (1) sweep primitive [renderers, sweepers, bio,
   journalism, ML prep — basically everyone] and (2) global semaphores [the
   license-constrained professional tier].
-- **Decide deliberately, don't drift:** the warm-worker fork and the container/cgroup
-  isolation dependency.
+- **Decide deliberately, don't drift:** the warm-worker fork and the cgroup/isolation
+  hardening dependency.
 
 ---
 
