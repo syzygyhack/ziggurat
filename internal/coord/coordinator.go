@@ -887,6 +887,10 @@ func deepCopyTask(t *model.Task) *model.Task {
 		cp.Artifacts = make([]string, len(t.Artifacts))
 		copy(cp.Artifacts, t.Artifacts)
 	}
+	if t.ArtifactNames != nil {
+		cp.ArtifactNames = make([]string, len(t.ArtifactNames))
+		copy(cp.ArtifactNames, t.ArtifactNames)
+	}
 	if t.Params != nil {
 		cp.Params = make(map[string]string, len(t.Params))
 		for k, v := range t.Params {

@@ -2,6 +2,7 @@ package coord
 
 import (
 	"fmt"
+	"path"
 
 	"github.com/syzygyhack/ziggurat/internal/model"
 	"github.com/syzygyhack/ziggurat/internal/store"
@@ -37,8 +38,12 @@ func ResolveRefs(task *model.Task, s *store.Store) error {
 	}
 	task.InputRefs = resolved
 
-	// Resolve Artifacts: namespace key -> content hash.
+	// Resolve Artifacts: namespace key -> content hash. The basename of each
+	// namespace key is preserved (parallel slice) so the worker can stage a
+	// raw single-file artifact under its original filename rather than a
+	// hash-derived name.
 	arts := make([]string, 0, len(task.Artifacts))
+	names := make([]string, 0, len(task.Artifacts))
 	for _, nsKey := range task.Artifacts {
 		hash, err := s.Resolve(nsKey)
 		if err != nil {
@@ -51,8 +56,10 @@ func ResolveRefs(task *model.Task, s *store.Store) error {
 		}
 		incrd = append(incrd, hash)
 		arts = append(arts, hash)
+		names = append(names, path.Base(nsKey))
 	}
 	task.Artifacts = arts
+	task.ArtifactNames = names
 
 	return nil
 }

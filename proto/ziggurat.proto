@@ -63,6 +63,7 @@ message DispatchTaskRequest {
   int32 attempt = 16;
   TaskEnvironment environment = 17;     // persistent env config (optional)
   TaskResources resources = 18;         // resource requests (optional)
+  repeated string artifact_names = 19;  // basenames for artifacts[], same order; stage each under its original filename
 }
 
 // TaskResources specifies resource requests for scheduler admission.

@@ -15,6 +15,7 @@ import (
 
 	"github.com/syzygyhack/ziggurat/internal/config"
 	"github.com/syzygyhack/ziggurat/internal/model"
+	"github.com/syzygyhack/ziggurat/internal/store"
 )
 
 // testNode holds a running node and its HTTP base URL.
@@ -187,6 +188,213 @@ func TestIntegration_CrossNodeDispatch(t *testing.T) {
 	}
 	if result.Stdout != "dispatched-output\n" {
 		t.Fatalf("expected stdout 'dispatched-output\\n', got %q", result.Stdout)
+	}
+}
+
+// TestIntegration_ArtifactByBasename is the golden end-to-end test for the
+// spec's primary artifact mechanism: upload a single-file script to the store,
+// then run it by its basename. The artifact must be staged into the task
+// workspace under its original filename (e.g. run.sh), not under a
+// content-hash-derived name, or the command cannot find it.
+func TestIntegration_ArtifactByBasename(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test requires process execution")
+	}
+
+	cfg := makeNodeConfig(t, "hybrid", "")
+	tc := startTestCluster(t, []*config.Config{cfg})
+	tc.waitForCluster(1, 10*time.Second)
+	baseURL := tc.nodes[0].httpURL
+
+	// Upload a raw (non-tar) single-file shell script under a namespace key.
+	const marker = "artifact-ran-ok"
+	script := "echo " + marker + "\n"
+	req, _ := http.NewRequest(http.MethodPut, baseURL+"/store/scripts/run.sh",
+		strings.NewReader(script))
+	req.Header.Set("Content-Type", "application/octet-stream")
+	putResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	putResp.Body.Close()
+	if putResp.StatusCode != http.StatusCreated {
+		t.Fatalf("PUT script: expected 201, got %d", putResp.StatusCode)
+	}
+
+	// Submit a task that references the script by basename in its command and
+	// lists the namespace key as an artifact.
+	body := map[string]any{
+		"command":   []string{"sh", "run.sh"},
+		"artifacts": []string{"scripts/run.sh"},
+	}
+	data, _ := json.Marshal(body)
+	resp, err := http.Post(baseURL+"/tasks", "application/json", bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusCreated {
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		t.Fatalf("submit: expected 201, got %d: %s", resp.StatusCode, b)
+	}
+	var submitted model.Task
+	json.NewDecoder(resp.Body).Decode(&submitted)
+	resp.Body.Close()
+
+	result := waitForTask(t, baseURL, submitted.ID, 30*time.Second)
+
+	if result.Status != model.TaskCompleted {
+		t.Fatalf("expected completed, got %s (exit %d, error: %s, stderr: %q)",
+			result.Status, result.ExitCode, result.Error, result.Stderr)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("expected exit code 0, got %d (stderr: %q)", result.ExitCode, result.Stderr)
+	}
+	if strings.TrimSpace(result.Stdout) != marker {
+		t.Fatalf("expected stdout %q, got %q", marker, result.Stdout)
+	}
+}
+
+// TestIntegration_ArtifactByBasename_CrossNode verifies the artifact-basename
+// fix survives the gRPC wire path: a coordinator with no local worker resolves
+// the artifact (preserving its basename) and dispatches the task to a separate
+// worker node, which must stage the script under run.sh and execute it.
+func TestIntegration_ArtifactByBasename_CrossNode(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test requires process execution and gossip")
+	}
+
+	coordCfg := makeNodeConfig(t, "coordinator", "")
+	workerCfg := makeNodeConfig(t, "worker",
+		fmt.Sprintf("127.0.0.1:%d", coordCfg.Network.GossipPort))
+	tc := startTestCluster(t, []*config.Config{coordCfg, workerCfg})
+	tc.waitForCluster(2, 10*time.Second)
+	coordURL := tc.nodes[0].httpURL
+
+	const marker = "cross-node-artifact-ok"
+	script := "echo " + marker + "\n"
+	req, _ := http.NewRequest(http.MethodPut, coordURL+"/store/scripts/run.sh",
+		strings.NewReader(script))
+	req.Header.Set("Content-Type", "application/octet-stream")
+	putResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	putResp.Body.Close()
+	if putResp.StatusCode != http.StatusCreated {
+		t.Fatalf("PUT script: expected 201, got %d", putResp.StatusCode)
+	}
+
+	body := map[string]any{
+		"command":   []string{"sh", "run.sh"},
+		"artifacts": []string{"scripts/run.sh"},
+	}
+	data, _ := json.Marshal(body)
+	resp, err := http.Post(coordURL+"/tasks", "application/json", bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var submitted model.Task
+	json.NewDecoder(resp.Body).Decode(&submitted)
+	resp.Body.Close()
+
+	result := waitForTask(t, coordURL, submitted.ID, 30*time.Second)
+	if result.Status != model.TaskCompleted || result.ExitCode != 0 {
+		t.Fatalf("expected completed/exit 0, got %s/%d (error: %s, stderr: %q)",
+			result.Status, result.ExitCode, result.Error, result.Stderr)
+	}
+	if strings.TrimSpace(result.Stdout) != marker {
+		t.Fatalf("expected stdout %q, got %q", marker, result.Stdout)
+	}
+}
+
+// TestIntegration_DirectoryArtifact guards against the basename fix regressing
+// tar (directory) artifacts: a tar-wrapped directory artifact must still
+// extract into the workspace root so its files are reachable by their relative
+// paths, not nested under the artifact's name.
+func TestIntegration_DirectoryArtifact(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test requires process execution")
+	}
+
+	cfg := makeNodeConfig(t, "hybrid", "")
+	tc := startTestCluster(t, []*config.Config{cfg})
+	tc.waitForCluster(1, 10*time.Second)
+	baseURL := tc.nodes[0].httpURL
+
+	// Build a deterministic tar of a directory containing a script.
+	srcDir := t.TempDir()
+	const marker = "dir-artifact-ok"
+	if err := os.WriteFile(srcDir+"/run.sh", []byte("echo "+marker+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var tarBuf bytes.Buffer
+	if err := store.CreateDeterministicTar(srcDir, &tarBuf); err != nil {
+		t.Fatal(err)
+	}
+
+	req, _ := http.NewRequest(http.MethodPut, baseURL+"/store/bundles/scripts",
+		bytes.NewReader(tarBuf.Bytes()))
+	req.Header.Set("Content-Type", "application/octet-stream")
+	putResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	putResp.Body.Close()
+	if putResp.StatusCode != http.StatusCreated {
+		t.Fatalf("PUT bundle: expected 201, got %d", putResp.StatusCode)
+	}
+
+	// The tar's files extract into the workspace root, so run.sh is reachable
+	// by its relative path even though the artifact key basename is "scripts".
+	body := map[string]any{
+		"command":   []string{"sh", "run.sh"},
+		"artifacts": []string{"bundles/scripts"},
+	}
+	data, _ := json.Marshal(body)
+	resp, err := http.Post(baseURL+"/tasks", "application/json", bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var submitted model.Task
+	json.NewDecoder(resp.Body).Decode(&submitted)
+	resp.Body.Close()
+
+	result := waitForTask(t, baseURL, submitted.ID, 30*time.Second)
+	if result.Status != model.TaskCompleted || result.ExitCode != 0 {
+		t.Fatalf("expected completed/exit 0, got %s/%d (error: %s, stderr: %q)",
+			result.Status, result.ExitCode, result.Error, result.Stderr)
+	}
+	if strings.TrimSpace(result.Stdout) != marker {
+		t.Fatalf("expected stdout %q, got %q", marker, result.Stdout)
+	}
+}
+
+// waitForTask polls the task endpoint until the task reaches a terminal state
+// or the timeout expires.
+func waitForTask(t *testing.T, baseURL, id string, timeout time.Duration) model.Task {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	var result model.Task
+	for {
+		select {
+		case <-ctx.Done():
+			t.Fatalf("timed out waiting for task %s to complete", id)
+		default:
+		}
+		getResp, err := http.Get(baseURL + "/tasks/" + id)
+		if err != nil {
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+		json.NewDecoder(getResp.Body).Decode(&result)
+		getResp.Body.Close()
+		if result.Status == model.TaskCompleted || result.Status == model.TaskFailed ||
+			result.Status == model.TaskDeadLetter || result.Status == model.TaskCancelled {
+			return result
+		}
+		time.Sleep(200 * time.Millisecond)
 	}
 }
 

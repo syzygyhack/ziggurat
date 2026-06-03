@@ -91,18 +91,19 @@ func (s *TaskStatus) UnmarshalJSON(data []byte) error {
 
 // Task represents a unit of work submitted to the cluster.
 type Task struct {
-	ID          string            `json:"id"`
-	Command     []string          `json:"command"`
-	Env         map[string]string `json:"env,omitempty"`
-	InputRefs   map[string]string `json:"input_refs,omitempty"` // name -> content hash (resolved at submission)
-	Artifacts   []string          `json:"artifacts,omitempty"`  // content hashes (resolved at submission)
-	Params      map[string]string `json:"params,omitempty"`
-	Requires    []string          `json:"requires,omitempty"`
-	Constraints []string          `json:"constraints,omitempty"` // capability constraint expressions
-	Resources   ResourceReq       `json:"resources,omitempty"`
-	Image       string            `json:"image,omitempty"`
-	Environment *TaskEnvironment  `json:"environment,omitempty"`
-	Config      TaskConfig        `json:"config"`
+	ID            string            `json:"id"`
+	Command       []string          `json:"command"`
+	Env           map[string]string `json:"env,omitempty"`
+	InputRefs     map[string]string `json:"input_refs,omitempty"`     // name -> content hash (resolved at submission)
+	Artifacts     []string          `json:"artifacts,omitempty"`      // content hashes (resolved at submission)
+	ArtifactNames []string          `json:"artifact_names,omitempty"` // basenames for Artifacts, same order; staged under original filename (set at resolve)
+	Params        map[string]string `json:"params,omitempty"`
+	Requires      []string          `json:"requires,omitempty"`
+	Constraints   []string          `json:"constraints,omitempty"` // capability constraint expressions
+	Resources     ResourceReq       `json:"resources,omitempty"`
+	Image         string            `json:"image,omitempty"`
+	Environment   *TaskEnvironment  `json:"environment,omitempty"`
+	Config        TaskConfig        `json:"config"`
 
 	// Set by coordinator / worker.
 	Status       TaskStatus  `json:"status"`

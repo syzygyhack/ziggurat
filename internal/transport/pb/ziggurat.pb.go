@@ -39,8 +39,9 @@ type DispatchTaskRequest struct {
 	KeepWorkspace bool                   `protobuf:"varint,14,opt,name=keep_workspace,json=keepWorkspace,proto3" json:"keep_workspace,omitempty"`
 	Image         string                 `protobuf:"bytes,15,opt,name=image,proto3" json:"image,omitempty"`
 	Attempt       int32                  `protobuf:"varint,16,opt,name=attempt,proto3" json:"attempt,omitempty"`
-	Environment   *TaskEnvironment       `protobuf:"bytes,17,opt,name=environment,proto3" json:"environment,omitempty"` // persistent env config (optional)
-	Resources     *TaskResources         `protobuf:"bytes,18,opt,name=resources,proto3" json:"resources,omitempty"`     // resource requests (optional)
+	Environment   *TaskEnvironment       `protobuf:"bytes,17,opt,name=environment,proto3" json:"environment,omitempty"`                          // persistent env config (optional)
+	Resources     *TaskResources         `protobuf:"bytes,18,opt,name=resources,proto3" json:"resources,omitempty"`                              // resource requests (optional)
+	ArtifactNames []string               `protobuf:"bytes,19,rep,name=artifact_names,json=artifactNames,proto3" json:"artifact_names,omitempty"` // basenames for artifacts[], same order; stage each under its original filename
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -197,6 +198,13 @@ func (x *DispatchTaskRequest) GetEnvironment() *TaskEnvironment {
 func (x *DispatchTaskRequest) GetResources() *TaskResources {
 	if x != nil {
 		return x.Resources
+	}
+	return nil
+}
+
+func (x *DispatchTaskRequest) GetArtifactNames() []string {
+	if x != nil {
+		return x.ArtifactNames
 	}
 	return nil
 }
@@ -1073,7 +1081,7 @@ var File_ziggurat_proto protoreflect.FileDescriptor
 
 const file_ziggurat_proto_rawDesc = "" +
 	"\n" +
-	"\x0eziggurat.proto\x12\bziggurat\"\x81\a\n" +
+	"\x0eziggurat.proto\x12\bziggurat\"\xa8\a\n" +
 	"\x13DispatchTaskRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\acommand\x18\x02 \x03(\tR\acommand\x128\n" +
@@ -1096,7 +1104,8 @@ const file_ziggurat_proto_rawDesc = "" +
 	"\x05image\x18\x0f \x01(\tR\x05image\x12\x18\n" +
 	"\aattempt\x18\x10 \x01(\x05R\aattempt\x12;\n" +
 	"\venvironment\x18\x11 \x01(\v2\x19.ziggurat.TaskEnvironmentR\venvironment\x125\n" +
-	"\tresources\x18\x12 \x01(\v2\x17.ziggurat.TaskResourcesR\tresources\x1a6\n" +
+	"\tresources\x18\x12 \x01(\v2\x17.ziggurat.TaskResourcesR\tresources\x12%\n" +
+	"\x0eartifact_names\x18\x13 \x03(\tR\rartifactNames\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a<\n" +

@@ -429,15 +429,16 @@ func (s *Server) CancelTask(ctx context.Context, req *pb.CancelTaskRequest) (*pb
 // protoToTask converts a DispatchTaskRequest to a model.Task.
 func protoToTask(req *pb.DispatchTaskRequest) *model.Task {
 	t := &model.Task{
-		ID:          req.Id,
-		Command:     req.Command,
-		Env:         req.Env,
-		InputRefs:   req.InputRefs,
-		Artifacts:   req.Artifacts,
-		Params:      req.Params,
-		Requires:    req.Requires,
-		Constraints: req.Constraints,
-		Image:       req.Image,
+		ID:            req.Id,
+		Command:       req.Command,
+		Env:           req.Env,
+		InputRefs:     req.InputRefs,
+		Artifacts:     req.Artifacts,
+		ArtifactNames: req.ArtifactNames,
+		Params:        req.Params,
+		Requires:      req.Requires,
+		Constraints:   req.Constraints,
+		Image:         req.Image,
 		Config: model.TaskConfig{
 			Priority:      int(req.Priority),
 			Timeout:       model.Duration(time.Duration(req.TimeoutNs)),
@@ -473,6 +474,7 @@ func taskToProto(t *model.Task) *pb.DispatchTaskRequest {
 		Env:           t.Env,
 		InputRefs:     t.InputRefs,
 		Artifacts:     t.Artifacts,
+		ArtifactNames: t.ArtifactNames,
 		Params:        t.Params,
 		Requires:      t.Requires,
 		Constraints:   t.Constraints,

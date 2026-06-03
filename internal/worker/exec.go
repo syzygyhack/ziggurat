@@ -84,14 +84,21 @@ func Execute(ctx context.Context, task *model.Task, s *store.Store, cfg config.C
 		if !strings.HasPrefix(filepath.Clean(dest), inputDir+string(filepath.Separator)) && dest != inputDir {
 			return &ExecResult{ExitCode: -1, Error: fmt.Sprintf("input name escapes workdir: %q", name)}
 		}
-		if err := fetchObject(ctx, s, hashHex, dest); err != nil {
+		if err := fetchObject(ctx, s, hashHex, dest, ""); err != nil {
 			return &ExecResult{ExitCode: -1, Error: fmt.Sprintf("fetch input %s: %v", name, err)}
 		}
 	}
 
-	// 3. Fetch artifacts into workspace root.
-	for _, hashHex := range task.Artifacts {
-		if err := fetchObject(ctx, s, hashHex, workspace); err != nil {
+	// 3. Fetch artifacts into workspace root. A raw (non-tar) artifact is
+	// staged under its original basename (ArtifactNames, parallel to Artifacts)
+	// so the command can reference it by name; tar artifacts extract into the
+	// workspace root as before.
+	for i, hashHex := range task.Artifacts {
+		rawName := ""
+		if i < len(task.ArtifactNames) {
+			rawName = task.ArtifactNames[i]
+		}
+		if err := fetchObject(ctx, s, hashHex, workspace, rawName); err != nil {
 			return &ExecResult{ExitCode: -1, Error: fmt.Sprintf("fetch artifact: %v", err)}
 		}
 	}
@@ -269,7 +276,13 @@ func Execute(ctx context.Context, task *model.Task, s *store.Store, cfg config.C
 	return result
 }
 
-func fetchObject(ctx context.Context, s *store.Store, hashHex, dest string) error {
+// fetchObject retrieves an object by hash into dest. If the object is a tar
+// archive it is extracted into dest; otherwise it is written as a raw file.
+// When the raw object must be placed inside a pre-existing directory (e.g. the
+// workspace root for artifacts), rawName gives the filename to use — typically
+// the artifact's original basename — so commands can reference it by name. If
+// rawName is empty, a hash-derived name is used as a fallback.
+func fetchObject(ctx context.Context, s *store.Store, hashHex, dest, rawName string) error {
 	rc, err := s.GetByHash(ctx, hashHex)
 	if err != nil {
 		return err
@@ -321,8 +334,15 @@ func fetchObject(ctx context.Context, s *store.Store, hashHex, dest string) erro
 	// Not a valid tar — write as a raw file by renaming the temp file.
 	if destExisted {
 		// dest was a pre-existing directory (workspace root for artifacts).
-		// Cannot remove it; place raw content as a file named by hash prefix.
-		return copyFile(tmpPath, filepath.Join(dest, hashHex[:12]), 0o755)
+		// Cannot remove it; place raw content as a file. Use the provided
+		// basename so the command can reference it by name; fall back to a
+		// hash prefix when no name is known. filepath.Base defends against a
+		// name containing path separators escaping the directory.
+		name := hashHex[:12]
+		if rawName != "" {
+			name = filepath.Base(rawName)
+		}
+		return copyFile(tmpPath, filepath.Join(dest, name), 0o755)
 	}
 	os.RemoveAll(dest)
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
