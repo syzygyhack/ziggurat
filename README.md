@@ -6,6 +6,8 @@ Tasks are arbitrary commands: any script, binary, or pipeline that runs on the w
 
 Runs on **Linux**, **macOS** (Apple Silicon), and **Windows**.
 
+> **Trusted-LAN by default.** Out of the box, TLS, join tokens, and API auth are off and the node binds all interfaces (`0.0.0.0`) — any peer that can reach the ports can join the cluster and run commands on your machines. This is intended for a **trusted LAN**. Enable mTLS + a join token + an API token (and firewall the ports) before exposing a node to an untrusted network — see [Configuration](#configuration) and [SECURITY.md](SECURITY.md).
+
 ## Install
 
 Download a prebuilt binary for your platform from the [latest release](https://github.com/syzygyhack/ziggurat/releases/latest) — `linux/amd64`, `linux/arm64`, `darwin/arm64`, and `windows/amd64` are published, with `SHA256SUMS` to verify:
@@ -138,6 +140,8 @@ log:
 
 Connection resolution for client commands: `--addr` flag > `ZIGGURAT_ADDR` env > config `client.addr` > `127.0.0.1:7100`.
 
+> **Before leaving the LAN, set all three.** The security defaults above (`tls.enabled: false`, empty `join_token`, empty `api_token`) are for a trusted local network. To harden a node: enable mTLS (`security.tls.enabled: true`), generate a cluster join token (`ziggurat token generate`), set an API bearer token, and firewall the gossip/gRPC/HTTP ports to known peers. See [SECURITY.md](SECURITY.md).
+
 ## Capabilities & Scheduling
 
 Each node advertises **capabilities** — auto-detected facts plus operator-declared values — and tasks are routed only to nodes that satisfy their requirements. Matching happens both at the coordinator (candidate selection) and at the receiving worker, so a task never runs on an ineligible node.
@@ -191,6 +195,20 @@ ziggurat run --gpus 1 --memory 8GB -- ./gpu-job
 A GPU job (`--gpus N`) is placed only on nodes with enough free GPUs, which then reserve devices and expose them via `CUDA_VISIBLE_DEVICES`. A task whose requirements no node satisfies stays queued until an eligible node appears.
 
 > Note: capability requirements are **explicit** — Ziggurat does not infer them from the command (a `.py` argument does not auto-require Python). Declare what a task needs with `--require` / `--constraint` / `--gpus`.
+
+## Task Safety & Execution Semantics
+
+Ziggurat dispatches arbitrary commands and guarantees **at-least-once** execution — not exactly-once. Before submitting destructive or stateful work, understand what this means.
+
+**At-least-once delivery.** When a node leaves the cluster, the coordinator re-queues the tasks it was running so they retry on another capable node. On a clean crash the departed node has genuinely stopped, so the task runs exactly once in practice. But during a **network partition** the original node may still be alive and *still executing* while unreachable from the coordinator — which cannot tell a partition apart from a crash, so it re-dispatches the task. The task can then run a **second time, concurrently, on a different node**. Task retries (`resilience.task_retries`, default `2`) can likewise re-run a task that already produced side effects. Exactly-once execution would require execution leases / fencing tokens and is **not currently implemented** (Phase 2 roadmap).
+
+**Write idempotent tasks.** Design every task to tolerate running more than once:
+
+- **Prefer content-addressed outputs.** Writing results back through Ziggurat's store keys objects by content hash, so duplicate runs producing identical bytes deduplicate naturally.
+- **Make external side effects idempotent.** Use deterministic output keys/paths, upserts instead of appends, conditional writes, or a unique task-scoped key so a re-run overwrites rather than doubles up.
+- **Assume concurrency.** A duplicate may run *at the same time* as the original, not just after it. Guard shared external resources accordingly.
+
+**Warning — non-idempotent and destructive commands.** Commands whose effect changes when run twice are **not safe** to submit as-is: appending to a file/ledger, incrementing counters, sending notifications/emails, charging/billing, irreversible deletes (`rm -rf`, `DROP TABLE`), or non-transactional multi-step migrations. A duplicate run can corrupt data or produce wrong results. If a task cannot be made idempotent, gate it behind your own external locking or run it outside the mesh.
 
 ## Commands
 
@@ -293,9 +311,9 @@ ziggurat/
 
 ### Fault tolerance & delivery semantics
 
-When a node leaves the cluster, the coordinator re-queues the tasks it was running (`RUNNING`/`SCHEDULED`) so they can be retried on another capable node; its load tracking and stale shard placements are cleaned up and a repair pass restores replication. Graceful shutdowns broadcast a clean departure; crashes are caught by the gossip failure detector.
+See [Task Safety & Execution Semantics](#task-safety--execution-semantics) for the at-least-once / duplicate-execution guidance task authors need; this section covers the cluster-internal mechanics.
 
-**Task execution is at-least-once, not exactly-once.** Re-queuing assumes a departed node has stopped working. On a true crash this holds. But during a **network partition** — the node is alive and still executing but unreachable from the coordinator — the task may be re-dispatched and run a second time elsewhere. Design your task commands to be **idempotent** (or tolerant of duplicate runs); writing outputs to content-addressed storage, which is keyed by content hash, naturally deduplicates. Exactly-once execution would require execution leases / fencing tokens and is not currently implemented.
+When a node leaves the cluster, the coordinator re-queues the tasks it was running (`RUNNING`/`SCHEDULED`) so they can be retried on another capable node; its load tracking and stale shard placements are cleaned up and a repair pass restores replication. Graceful shutdowns broadcast a clean departure; crashes are caught by the gossip failure detector. Because re-queuing can re-run a task that was still executing during a partition, execution is **at-least-once** — see [Task Safety & Execution Semantics](#task-safety--execution-semantics).
 
 ## Cross-Platform Notes
 
@@ -358,8 +376,8 @@ Gossip discovery, replication, distributed scheduling, gRPC transport, failure d
 ### Phase 1.5: LAN Productivity -- Complete
 Streaming I/O, storage repair loop, dead letter queue, batch submission, Prometheus metrics, pipelines, cross-node dispatch with output replication.
 
-### Phase 1: Production -- Complete
-All planned features implemented: shard rebalancing on join, drain with shard migration, resource-aware scheduling (memory/CPU/GPU admission), work stealing from overloaded workers, mDNS auto-discovery (`_ziggurat._tcp.local`), remote cancel propagation via gRPC, schema versioning for BoltDB, integration test harness, task log streaming (SSE), container execution (OCI via Podman/Docker), mTLS + join tokens + API bearer auth.
+### Phase 1: Operational Baseline (trusted LAN) -- Complete
+The following features are implemented and exercised on a trusted LAN: shard rebalancing on join, drain with shard migration, resource-aware scheduling (memory/CPU/GPU admission), work stealing from overloaded workers, mDNS auto-discovery (`_ziggurat._tcp.local`), remote cancel propagation via gRPC, schema versioning for BoltDB, integration test harness, task log streaming (SSE), container execution (OCI via Podman/Docker), mTLS + join tokens + API bearer auth.
 
 ### Phase 2: Advanced -- Planned
 Coordinator failover (Raft), speculative execution, cross-cluster federation, Python client, encryption at rest, cgroup resource limits.

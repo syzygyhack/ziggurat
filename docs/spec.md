@@ -18,29 +18,29 @@ Tasks are arbitrary commands -- any script, binary, or pipeline that runs on the
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        ZIGGURAT CLUSTER                          │
+│                        ZIGGURAT CLUSTER                         │
 │                                                                 │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐         │
-│  │   Node A     │◄──►│   Node B     │◄──►│   Node C     │       │
-│  │  COORD+WORK  │    │   WORKER    │    │   WORKER    │         │
-│  │              │    │              │    │              │         │
-│  │ ┌──────────┐ │    │ ┌──────────┐ │    │ ┌──────────┐ │       │
-│  │ │ Compute  │ │    │ │ Compute  │ │    │ │ Compute  │ │       │
-│  │ │ Engine   │ │    │ │ Engine   │ │    │ │ Engine   │ │       │
-│  │ └──────────┘ │    │ └──────────┘ │    │ └──────────┘ │       │
-│  │ ┌──────────┐ │    │ ┌──────────┐ │    │ ┌──────────┐ │       │
-│  │ │ Storage  │ │    │ │ Storage  │ │    │ │ Storage  │ │       │
-│  │ │ Engine   │ │    │ │ Engine   │ │    │ │ Engine   │ │       │
-│  │ └──────────┘ │    │ └──────────┘ │    │ └──────────┘ │       │
-│  │              │    │              │    │              │         │
-│  │ REST API ◄───┼────┼── client submits here            │       │
-│  │ gRPC mesh    │    │ gRPC mesh    │    │ gRPC mesh    │       │
-│  └──────────┘    └─────────────┘    └─────────────┘         │
+│  ┌─────────────┐    ┌──────────────┐    ┌──────────────┐        │
+│  │   Node A    │◄──►│   Node B     │◄──►│   Node C     │        │
+│  │  COORD+WORK │    │   WORKER     │    │   WORKER     │        │
+│  │             │    │              │    │              │        │
+│  │ ┌──────────┐│    │ ┌──────────┐ │    │ ┌──────────┐ │        │
+│  │ │ Compute  ││    │ │ Compute  │ │    │ │ Compute  │ │        │
+│  │ │ Engine   ││    │ │ Engine   │ │    │ │ Engine   │ │        │
+│  │ └──────────┘│    │ └──────────┘ │    │ └──────────┘ │        │
+│  │ ┌──────────┐│    │ ┌──────────┐ │    │ ┌──────────┐ │        │
+│  │ │ Storage  ││    │ │ Storage  │ │    │ │ Storage  │ │        │
+│  │ │ Engine   ││    │ │ Engine   │ │    │ │ Engine   │ │        │
+│  │ └──────────┘│    │ └──────────┘ │    │ └──────────┘ │        │
+│  │             │    │              │    │              │        │
+│  │ REST API ◄──┼────┼── client submits here            │        │
+│  │ gRPC mesh   │    │ gRPC mesh    │    │ gRPC mesh    │        │
+│  └─────────────┘    └──────────────┘    └──────────────┘        │
 │       ▲                                                         │
 │       │ mDNS / seed list / gossip                               │
 │       ▼                                                         │
 │  ┌─────────────┐                                                │
-│  │   Node D     │  (joins automatically via mDNS)               │
+│  │   Node D    │  (joins automatically via mDNS)                │
 │  │   WORKER    │                                                │
 │  └─────────────┘                                                │
 └─────────────────────────────────────────────────────────────────┘
@@ -1525,7 +1525,7 @@ Multi-node mesh. Builds on 0a by adding discovery, gossip, replication, and dist
 - [x] Distributed scheduling: locality scoring + load balancing (scheduler.Score/Select with ObjectLocator + NodeLoad interfaces)
 - [x] Heartbeat failure detection + task re-queue + storage repair (gossip NotifyLeave → Registry.OnLeave → RequeueByWorker + RemoveNodePlacements + TriggerRepair)
 
-### Phase 1: Production
+### Phase 1: Operational Baseline (trusted LAN)
 
 - [x] Erasure coding (Reed-Solomon) for large objects
 - [x] Storage repair (background re-replication + integrity scanning)
