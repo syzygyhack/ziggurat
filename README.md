@@ -6,6 +6,26 @@ Tasks are arbitrary commands: any script, binary, or pipeline that runs on the w
 
 Runs on **Linux**, **macOS** (Apple Silicon), and **Windows**.
 
+## Install
+
+Download a prebuilt binary for your platform from the [latest release](https://github.com/syzygyhack/ziggurat/releases/latest) — `linux/amd64`, `linux/arm64`, `darwin/arm64`, and `windows/amd64` are published, with `SHA256SUMS` to verify:
+
+```bash
+# Example: Linux amd64
+curl -LO https://github.com/syzygyhack/ziggurat/releases/latest/download/ziggurat-linux-amd64
+chmod +x ziggurat-linux-amd64
+sudo mv ziggurat-linux-amd64 /usr/local/bin/ziggurat
+ziggurat version
+```
+
+Or install from source with Go 1.24+:
+
+```bash
+go install github.com/syzygyhack/ziggurat/cmd/ziggurat@latest
+```
+
+To build from a checkout instead, see [Building](#building).
+
 ## Quick Start
 
 ```bash
