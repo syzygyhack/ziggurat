@@ -2,19 +2,33 @@
 
 ## Installation
 
-Build from source (requires Go 1.24+):
+The quickest way is a prebuilt binary. Download the one for your platform from
+the [latest release](https://github.com/syzygyhack/ziggurat/releases/latest)
+(`linux/amd64`, `linux/arm64`, `darwin/arm64`, `windows/amd64`; verify against
+the published `SHA256SUMS`), then put it anywhere on your PATH:
 
 ```bash
-go build -o ziggurat ./cmd/ziggurat
+curl -LO https://github.com/syzygyhack/ziggurat/releases/latest/download/ziggurat-linux-amd64
+chmod +x ziggurat-linux-amd64
+sudo mv ziggurat-linux-amd64 /usr/local/bin/ziggurat
 ```
 
-Or with version metadata:
+Or install from source (requires Go 1.24+):
 
 ```bash
-make build
+go install github.com/syzygyhack/ziggurat/cmd/ziggurat@latest
 ```
 
-Put the binary anywhere on your PATH. There are no other dependencies.
+From a checkout, the Makefile injects version/commit metadata and can install
+to your user bin directory:
+
+```bash
+make build      # builds ./ziggurat (or ziggurat.exe on Windows)
+make install    # builds and copies to ~/.local/bin (%USERPROFILE%\.local\bin on Windows)
+```
+
+A plain `go build -o ziggurat ./cmd/ziggurat` also works. There are no other
+dependencies — Ziggurat is a single static binary with no CGo.
 
 ## Deployment
 
@@ -430,7 +444,7 @@ Opens a REPL connected to the cluster. Supports `ls`, `put`, `get`, `rm`,
 `run`, `tasks`, `status`, `nodes`, and `top` commands. Type `help` for usage,
 `exit` or Ctrl+D to quit.
 
-## FUSE Mount (Linux)
+## FUSE Mount (Linux, macOS)
 
 ```bash
 ziggurat mount /mnt/zig
@@ -446,7 +460,10 @@ cat /mnt/zig/datasets/train.csv
 cp results.tar /mnt/zig/outputs/results.tar
 ```
 
-Press Ctrl+C or run `fusermount -u /mnt/zig` to unmount.
+Press Ctrl+C to unmount, or run `fusermount -u /mnt/zig` (Linux) /
+`umount /mnt/zig` (macOS). FUSE support is built in on Linux; macOS requires
+[macFUSE](https://macfuse.github.io/). The mount command is not available on
+Windows.
 
 ## Configuration
 

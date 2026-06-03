@@ -128,8 +128,8 @@ Original object (256 MB)
     │
     ▼
 ┌─────────────────────────────────┐
-│  RS Encoder (k=4, m=2)         │
-│  256 MB ÷ 4 = 64 MB per shard  │
+│  RS Encoder (k=4, m=2)          │
+│  256 MB ÷ 4 = 64 MB per shard   │
 └─────────────────────────────────┘
     │
     ├── Shard 0 (64 MB) → Node A
@@ -401,7 +401,7 @@ command: ["/usr/local/bin/class", "--ini", "params.ini"]
 
 ```yaml
 command: ["python3", "rg_evolve.py"]
-image: "ghcr.io/syzygy/research-env:latest"  # OCI image
+image: "ghcr.io/example/research-env:latest"  # OCI image
 ```
 
 When `image` is set, the workspace is bind-mounted into the container. Same env vars, same contract, different execution environment.

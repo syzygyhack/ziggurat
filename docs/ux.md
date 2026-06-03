@@ -59,13 +59,13 @@ ziggurat
  |   get <key> [dest]       Download object
  |   ls [prefix]            List objects
  |   rm <key>               Delete object
- |   pin <key>              Prevent GC                           [PLANNED]
- |   unpin <key>            Allow GC                             [PLANNED]
+ |   pin <key>              Prevent GC
+ |   unpin <key>            Allow GC
  |   store status           Storage utilization across cluster   [PLANNED]
  |
  |-- Interactive
  |   shell                  Interactive REPL for cluster operations
- |   mount <path>           Mount store as FUSE filesystem (Linux)
+ |   mount <path>           Mount store as FUSE filesystem (Linux, macOS)
  |
  |-- Diagnostics
  |   health                 Cluster health check (API only: /api/v1/health)
@@ -77,8 +77,8 @@ ziggurat
 
 ## Hero Command: `ziggurat status`
 
-The most important command. One screen, full picture. Modeled after `anza status`:
-grouped by significance, most important information first.
+The most important command. One screen, full picture: grouped by significance,
+most important information first.
 
 ### Cluster Overview (no arguments)
 
@@ -233,7 +233,8 @@ ziggurat tasks --status queued          # Only queued
 ziggurat tasks --status failed          # Only failed
 ziggurat tasks --node gpu-workstation   # Only tasks on this node             [PLANNED]
 ziggurat tasks --all                    # Include completed/failed/cancelled  [PLANNED]
-ziggurat tasks --limit 50              # Override default limit              [PLANNED]
+ziggurat tasks --limit 50               # Override default limit
+ziggurat tasks --offset 50              # Skip the newest 50 (paginate)
 ```
 
 ### `ziggurat task <id>`
@@ -386,7 +387,7 @@ datasets/pdg-2024           847 MB     3d ago       1      no
 
 ### `ziggurat store status`
 
-Cluster-wide storage health. Like `anza projects` but for storage.
+Cluster-wide storage health.
 
 ```
 $ ziggurat store status
