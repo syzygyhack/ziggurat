@@ -1574,11 +1574,23 @@ doors-per-effort first:
 - [ ] **Global consumable resources / semaphores** (P0) — cluster-wide countable limits (license seats, API rate, DB conns)
 - [ ] **Warm / sticky worker pool** (decide deliberately, not now) — long-lived processes for expensive in-memory init
 
+Data & reproducibility (next high-leverage axis — exploits the content store; see "Smarter mesh, not bigger nodes" below):
+
+- [ ] **Memoization / content-addressed result cache** (P0) — skip re-execution when `command + input hashes + env fingerprint + image` matches a prior completed task; opt-in per task
+- [ ] **Provenance / reproducibility receipts** (P0, pairs with memoization) — queryable lineage graph + portable, re-runnable receipts built from already-captured task metadata
+- [ ] **Reduce / gather primitive** — native fan-in (aggregate N outputs → 1, tree-reduced for large N); completes the fan-out story
+
+Scavenging & reactivity:
+
+- [ ] **Opportunistic idle-harvest + owner-yield** — contribute idle cycles, drain-yield when the owner returns (load / interactive session / schedule)
+- [ ] **Reactive / watch-triggered tasks** — run a task when a namespace key/prefix changes (discrete, debounced, idempotent)
+
 Infrastructure / hardening:
 
 - [ ] Coordinator failover (Raft via hashicorp/raft)
 - [ ] Speculative execution for slow tasks
 - [ ] Cross-cluster federation (connect multiple Ziggurat clusters)
+- [ ] **Burst / overflow across a boundary** — generalize local overflow-offload to burst to a second cluster or cloud pool when the whole LAN saturates (extends federation)
 - [ ] Python client library (pip installable)
 - [ ] Encryption at rest
 - [ ] Resource limits enforcement (cgroups: CPU, memory, disk I/O per task) — *also an isolation prerequisite, see gating note below*
@@ -1601,6 +1613,11 @@ shapes, hang entities off them, and end with the feature gaps the exercise surfa
 Anything fitting one of these with **large read-many inputs** is dead-center for the
 content store. **Out of scope (the wall):** fine-grained inter-task communication
 (MPI-style coupling, tensor traffic) — Ziggurat is for independent-item workloads only.
+On the same wall: **virtual verticalization** — pooling VRAM/RAM across nodes to give a
+single task more than one node's worth of a resource. It needs tensor-traffic-class
+interconnect and parallel runtimes, and turns a loose gossip mesh into a tightly-coupled
+supercomputer. **Explicitly ruled out.** Every task stays within one node's resources;
+the mesh adds value through *coordination*, not *fusion*.
 
 ### Target entities (hardware + right-shaped work)
 
@@ -1675,13 +1692,78 @@ hardening are load-bearing for a whole tier. Until they land, these entities rem
 Implication: if the isolation-gated tier is a target, **cgroup limits + isolation
 hardening move up the priority list** (container execution itself is already done).
 
+### Smarter mesh, not bigger nodes
+
+The entities exercise above asks "what work, for whom." This axis asks "what should the
+mesh *become*." Having ruled out virtual verticalization (see the wall), the directions
+that compound with the architecture keep every task inside one node's resources and make
+the mesh smarter about its **memory** (what it has already computed), its **time** (when
+capacity exists), and its **reach** (where capacity exists). Three under-exploited
+primitives make the memory axis nearly free: the BLAKE3 content store, the fact that
+`ResolveRefs` already turns every input ref into a content hash at submission, and
+fingerprint-keyed env reuse.
+
+**Smarter memory — memoization + provenance (paired, P0; the strongest novel bet).**
+Because inputs are hashed at submission and env reuse is fingerprinted, a task's full
+determinant — `command + resolved input hashes + env fingerprint + image` — is computable
+*before* execution. Two features fall out of that one fact:
+- **Memoization.** Hash the determinant into a cache key; if a prior task with that key
+  completed, return its `output_ref` instead of re-executing. Cache entries (key →
+  output_ref) live in the metadata DB and replicate like other state. **Opt-in only**
+  (`--cache` / `pure: true`) — never default, because a hit assumes the task is a pure
+  function of its declared inputs. Architectural impact: admission gains a pre-exec
+  lookup step; entries must be invalidatable and must record exactly what was hashed.
+  Failure modes to respect (undeclared inputs, RNG/wall-clock, side effects) get the same
+  honesty posture as at-least-once: surface the hashed determinant so a user can reject a
+  hit. Unlocks: re-running a sweep after changing one axis re-executes only the changed
+  cells; CI skips unchanged steps. The closest thing to a genuine differentiator on
+  existing primitives — *the mesh remembers.*
+- **Provenance / receipts.** Every completed task already carries command, input hashes,
+  output hash, env fingerprint, and executing node. Surface it as (a) a queryable lineage
+  graph and (b) a portable, re-runnable **receipt** (a manifest you can re-submit to
+  reproduce, and diff output hashes to verify). Mostly a read/query + serialization layer
+  over existing records — low effort, high credibility where reproducibility is the real
+  pain — and it is the trust surface memoization needs (a hit is explainable).
+
+**Smarter time — opportunistic harvest + reactive triggers.**
+- **Idle-harvest + owner-yield** is the strongest fit for the homelab / lab / office-
+  workstation personas already in the entities table: a node contributes when idle and
+  **gracefully yields** when its owner returns (load threshold, interactive session, or
+  schedule). A local pressure signal drives the admission ceiling to zero and triggers a
+  drain-style preemption; preempted tasks requeue elsewhere — the requeue + at-least-once
+  + drain machinery already exists. Main cost is partial-work waste (mitigate with
+  speculative re-dispatch / checkpoint-friendly tasks). This *grows* usable capacity from
+  machines people already own — Condor-style cycle scavenging for the zero-config era.
+- **Reactive / watch-triggered tasks**: run task T when a namespace key/prefix changes.
+  Kept discrete, debounced, and idempotent — not a streaming runtime, so it stays on the
+  grain. Unlocks lightweight CI and incremental corpus processing.
+
+**Smarter reach — burst.** Local overflow-offload already moves work from a saturated
+worker to a peer; generalize the same pressure signal to burst to a second cluster or a
+cloud pool when the whole LAN saturates, then drain back. Incremental on an existing
+primitive; the deadline-driven elastic-capacity story without abandoning the trusted-LAN
+default.
+
+**Completing the shape — reduce.** Sweeps fan out; there is no native fan-in. A `reduce`
+step aggregates N task outputs into one (tree-reduced across nodes for large N), reusing
+pipeline dependency wiring and the store for intermediates. Cheap, and it closes the
+MapReduce shape (sweep → reduce) the fan-out tier keeps reaching for.
+
 ### Prioritization summary
 
-- **Most doors per unit effort:** (1) sweep primitive [renderers, sweepers, bio,
+- **Most doors per unit effort:** (1) sweep primitive [done; renderers, sweepers, bio,
   journalism, ML prep — basically everyone] and (2) global semaphores [the
   license-constrained professional tier].
+- **Strongest novel bet on existing primitives:** memoization + provenance — nearly free
+  given content-addressed inputs and env fingerprints, and the one direction with no
+  obvious analog in the SSH-script / Slurm / homelab space.
+- **Biggest capacity multiplier:** opportunistic idle-harvest — grows the usable cluster
+  from machines the target personas already own, rather than reorganizing existing nodes.
+- **Cheap completions:** reduce (closes the fan-out shape) and burst (extends the
+  existing overflow-offload across a boundary).
 - **Decide deliberately, don't drift:** the warm-worker fork and the cgroup/isolation
   hardening dependency.
+- **Ruled out:** virtual verticalization (resource pooling across nodes) — off-grain.
 
 ---
 
