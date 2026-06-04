@@ -32,6 +32,7 @@ func runWaitCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	setAuth(req)
 
 	if !jsonOut {
 		fmt.Fprintf(os.Stderr, "Waiting for task %s...\n", shortID(args[0]))

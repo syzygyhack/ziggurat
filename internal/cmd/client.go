@@ -49,6 +49,33 @@ func apiURL(path string) string {
 	return apiBase() + "/api/v1" + path
 }
 
+// bearerToken resolves the API bearer token using the precedence:
+//  1. --token flag
+//  2. ZIGGURAT_TOKEN env var
+//  3. security.api_token from the config file
+//  4. "" (no auth header sent)
+func bearerToken() string {
+	if tokenFlag != "" {
+		return tokenFlag
+	}
+	if env := os.Getenv("ZIGGURAT_TOKEN"); env != "" {
+		return env
+	}
+	// Same-host convenience: read the server's configured token. Ignore load
+	// errors here — apiBase() already handles an explicit --config that fails.
+	if cfg, err := config.LoadConfig(cfgFile); err == nil && cfg.Security.APIToken != "" {
+		return cfg.Security.APIToken
+	}
+	return ""
+}
+
+// setAuth adds the Authorization header to req when a token is configured.
+func setAuth(req *http.Request) {
+	if tok := bearerToken(); tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+}
+
 // httpClient is the shared client for CLI requests that should complete
 // within a reasonable time (list, status, submit, cancel, etc.). The 2m
 // timeout prevents hangs when the server is overloaded or deadlocked.
@@ -73,7 +100,12 @@ var httpClientLong = &http.Client{
 }
 
 func doGet(path string) (*http.Response, error) {
-	resp, err := httpClient.Get(apiURL(path))
+	req, err := http.NewRequest(http.MethodGet, apiURL(path), nil)
+	if err != nil {
+		return nil, err
+	}
+	setAuth(req)
+	resp, err := httpClient.Do(req)
 	return resp, wrapConnError(err)
 }
 
@@ -82,7 +114,13 @@ func doPost(path string, body any) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	resp, err := httpClient.Post(apiURL(path), "application/json", bytes.NewReader(data))
+	req, err := http.NewRequest(http.MethodPost, apiURL(path), bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	setAuth(req)
+	resp, err := httpClient.Do(req)
 	return resp, wrapConnError(err)
 }
 
@@ -91,6 +129,7 @@ func doPut(path string, body io.Reader) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
+	setAuth(req)
 	resp, err := httpClient.Do(req)
 	return resp, wrapConnError(err)
 }
@@ -100,6 +139,7 @@ func doDelete(path string) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
+	setAuth(req)
 	resp, err := httpClient.Do(req)
 	return resp, wrapConnError(err)
 }

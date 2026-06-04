@@ -6,9 +6,10 @@ import (
 
 // Global flags shared across commands.
 var (
-	cfgFile string // --config
-	addr    string // --addr (server address for client commands)
-	jsonOut bool   // --json
+	cfgFile   string // --config
+	addr      string // --addr (server address for client commands)
+	jsonOut   bool   // --json
+	tokenFlag string // --token (API bearer token for client commands)
 )
 
 // NewRootCmd creates the root command with all subcommands registered.
@@ -23,6 +24,7 @@ func NewRootCmd(version, commit string) *cobra.Command {
 
 	root.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (auto-detects ziggurat.yaml if present)")
 	root.PersistentFlags().StringVar(&addr, "addr", "", "server address (default: ZIGGURAT_ADDR or 127.0.0.1:7100)")
+	root.PersistentFlags().StringVar(&tokenFlag, "token", "", "API bearer token (default: ZIGGURAT_TOKEN or security.api_token from config)")
 	root.PersistentFlags().BoolVar(&jsonOut, "json", false, "output as JSON")
 
 	// Server lifecycle

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"runtime"
 	"strings"
@@ -206,7 +207,13 @@ func runRun(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "Submitted %s, waiting...\n", shortID(id))
 	}
 	// Use the long-polling client — task execution can take arbitrarily long.
-	resp, err = httpClientLong.Post(apiURL("/tasks/"+id+"/wait"), "application/json", nil)
+	waitReq, err := http.NewRequest(http.MethodPost, apiURL("/tasks/"+id+"/wait"), nil)
+	if err != nil {
+		return err
+	}
+	waitReq.Header.Set("Content-Type", "application/json")
+	setAuth(waitReq)
+	resp, err = httpClientLong.Do(waitReq)
 	if err != nil {
 		return fmt.Errorf("wait for task: %w", wrapConnError(err))
 	}

@@ -45,6 +45,7 @@ func streamLogs(taskID string) error {
 		return err
 	}
 	req.Header.Set("Accept", "text/event-stream")
+	setAuth(req)
 
 	resp, err := httpClientLong.Do(req)
 	if err != nil {
@@ -73,6 +74,7 @@ func streamLogsFollow(taskID string) error {
 			return err
 		}
 		req.Header.Set("Accept", "text/event-stream")
+		setAuth(req)
 
 		resp, err := httpClientLong.Do(req)
 		if err != nil {

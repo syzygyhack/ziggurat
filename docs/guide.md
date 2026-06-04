@@ -572,11 +572,15 @@ security:
   api_token: "<token>"
 ```
 
-> **Caveat:** the API token is enforced **server-side**, but the bundled
-> `ziggurat` CLI does not yet send it — setting `api_token` will lock the CLI
-> out (`401`). For now, use it only when you drive the API directly (e.g.
-> `curl -H "Authorization: Bearer <token>" ...`); leave it empty if you rely on
-> the CLI. CLI support is planned.
+The CLI authenticates automatically, resolving the token in this order:
+
+1. `--token` flag
+2. `ZIGGURAT_TOKEN` environment variable
+3. `security.api_token` in the config file
+
+So a client on the coordinator host picks it up from config; a remote client
+sets `--token` or `ZIGGURAT_TOKEN`. Direct HTTP clients send the header
+themselves, e.g. `curl -H "Authorization: Bearer <token>" ...`.
 
 Encryption at rest is **not yet implemented** (Phase 2).
 

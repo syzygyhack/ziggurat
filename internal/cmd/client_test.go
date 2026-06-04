@@ -6,7 +6,12 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/syzygyhack/ziggurat/internal/api"
 )
 
 func TestShortID(t *testing.T) {
@@ -190,5 +195,147 @@ func TestWrapConnError_OtherError(t *testing.T) {
 	other := errors.New("some random error")
 	if err := wrapConnError(other); err != other {
 		t.Errorf("expected original error returned unchanged")
+	}
+}
+
+// emptyCfgFile writes a minimal config file so bearerToken()'s config fallback
+// resolves to an empty token (and never auto-detects ~/.ziggurat).
+func emptyCfgFile(t *testing.T) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "ziggurat.yaml")
+	if err := os.WriteFile(p, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestBearerToken_Precedence(t *testing.T) {
+	defer func(tf, cf string) { tokenFlag, cfgFile = tf, cf }(tokenFlag, cfgFile)
+	cfgFile = emptyCfgFile(t)
+
+	// 1. --token flag wins over the env var.
+	tokenFlag = "flagtok"
+	t.Setenv("ZIGGURAT_TOKEN", "envtok")
+	if got := bearerToken(); got != "flagtok" {
+		t.Errorf("flag precedence: got %q, want flagtok", got)
+	}
+
+	// 2. env var used when no flag.
+	tokenFlag = ""
+	if got := bearerToken(); got != "envtok" {
+		t.Errorf("env precedence: got %q, want envtok", got)
+	}
+
+	// 3. empty when neither flag nor env set and config has none.
+	t.Setenv("ZIGGURAT_TOKEN", "")
+	if got := bearerToken(); got != "" {
+		t.Errorf("no-token: got %q, want empty", got)
+	}
+}
+
+func TestDoGet_SendsAuthHeader(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	defer func(a, tf string) { addr, tokenFlag = a, tf }(addr, tokenFlag)
+	addr = strings.TrimPrefix(srv.URL, "http://")
+	tokenFlag = "sekret"
+
+	resp, err := doGet("/health")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if gotAuth != "Bearer sekret" {
+		t.Errorf("Authorization = %q, want %q", gotAuth, "Bearer sekret")
+	}
+}
+
+func TestDoPost_SendsAuthAndContentType(t *testing.T) {
+	var gotAuth, gotCT string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		gotCT = r.Header.Get("Content-Type")
+		w.WriteHeader(201)
+	}))
+	defer srv.Close()
+
+	defer func(a, tf string) { addr, tokenFlag = a, tf }(addr, tokenFlag)
+	addr = strings.TrimPrefix(srv.URL, "http://")
+	tokenFlag = "ptok"
+
+	resp, err := doPost("/tasks", map[string]string{"x": "y"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if gotAuth != "Bearer ptok" {
+		t.Errorf("Authorization = %q, want %q", gotAuth, "Bearer ptok")
+	}
+	if gotCT != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", gotCT)
+	}
+}
+
+// TestClientServerAuth_Interop wires the real server-side BearerTokenAuth
+// middleware so the client's header and the server's check are verified against
+// each other — a valid token is accepted, a wrong one is rejected (401).
+func TestClientServerAuth_Interop(t *testing.T) {
+	const tok = "interop-token"
+	h := api.BearerTokenAuth(tok)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	defer func(a, tf string) { addr, tokenFlag = a, tf }(addr, tokenFlag)
+	addr = strings.TrimPrefix(srv.URL, "http://")
+
+	tokenFlag = tok
+	resp, err := doGet("/anything")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("valid token: got %d, want 200", resp.StatusCode)
+	}
+
+	tokenFlag = "wrong-token"
+	resp, err = doGet("/anything")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("wrong token: got %d, want 401", resp.StatusCode)
+	}
+}
+
+func TestDoGet_NoToken_NoHeader(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	defer func(a, tf, cf string) { addr, tokenFlag, cfgFile = a, tf, cf }(addr, tokenFlag, cfgFile)
+	addr = strings.TrimPrefix(srv.URL, "http://")
+	tokenFlag = ""
+	cfgFile = emptyCfgFile(t)
+	t.Setenv("ZIGGURAT_TOKEN", "")
+
+	resp, err := doGet("/health")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if gotAuth != "" {
+		t.Errorf("Authorization = %q, want empty (no token configured)", gotAuth)
 	}
 }

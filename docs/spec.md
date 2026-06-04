@@ -1412,11 +1412,9 @@ network — all are configured under the `security` block (no CLI flags):
   gossip, so only nodes that present it can join. Set the same value in every
   node's config.
 - **API auth** (`security.api_token`): the HTTP API requires a
-  `Authorization: Bearer <token>` header. **Caveat:** this is enforced
-  server-side, but the bundled `ziggurat` CLI does not yet send the token —
-  setting `api_token` will lock the CLI out (`401`). Use it only when driving
-  the HTTP API directly (e.g. `curl -H "Authorization: Bearer …"`); CLI support
-  is a pending fix. (Also noted in SECURITY.md.)
+  `Authorization: Bearer <token>` header. The CLI sends it automatically,
+  resolving the token from the `--token` flag, the `ZIGGURAT_TOKEN` env var, or
+  `security.api_token` in its config (in that order).
 
 Planned (Phase 2):
 
