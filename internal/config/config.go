@@ -86,7 +86,6 @@ type TierConfig struct {
 
 type ComputeConfig struct {
 	Concurrency           int           `yaml:"concurrency"`
-	MemoryLimit           int64         `yaml:"memory_limit"`
 	TaskTimeout           time.Duration `yaml:"task_timeout"`
 	MaxOutputSize         int64         `yaml:"max_output_size"`
 	CancelGrace           time.Duration `yaml:"cancel_grace"`

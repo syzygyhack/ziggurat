@@ -116,7 +116,11 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 	var certPaths certs.CertPaths
 	if cfg.Security.TLS.Enabled {
 		isCoord := role == "coordinator" || role == "hybrid"
-		certPaths, err = certs.LoadOrGenerateCerts(dataDir, nodeID, isCoord, collectSANs(cfg))
+		certsDir := cfg.Security.TLS.CertsDir
+		if certsDir == "" {
+			certsDir = certs.DefaultDir(dataDir)
+		}
+		certPaths, err = certs.LoadOrGenerateCerts(certsDir, nodeID, isCoord, collectSANs(cfg))
 		if err != nil {
 			return nil, fmt.Errorf("tls certs: %w", err)
 		}
@@ -130,7 +134,7 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 		clientTLS := tlsCfg.Clone()
 		clientTLS.InsecureSkipVerify = true // cluster-internal: trust CA, skip hostname
 		grpcDialOpt = grpc.WithTransportCredentials(credentials.NewTLS(clientTLS))
-		log.Info("mTLS enabled", "certs_dir", certs.DefaultDir(dataDir))
+		log.Info("mTLS enabled", "certs_dir", certsDir)
 	} else {
 		grpcCreds = grpc.Creds(insecure.NewCredentials())
 		grpcDialOpt = grpc.WithTransportCredentials(insecure.NewCredentials())
@@ -200,7 +204,7 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 	gc := store.NewGC(s, cfg.Storage.GCGracePeriod, log.With("component", "gc"))
 
 	// Start cluster gossip.
-	clusterCfg := cluster.ConfigFromNode(nodeID, cfg.Node, cfg.Network, cfg.Cluster, caps, cfg.Security.JoinToken)
+	clusterCfg := cluster.ConfigFromNode(nodeID, cfg.Node, cfg.Network, cfg.Cluster, caps, cfg.Security.JoinToken, cfg.Resilience.HeartbeatInterval, cfg.Resilience.SuspicionTimeout)
 	cl, err := cluster.New(clusterCfg, log.With("component", "cluster"))
 	if err != nil {
 		log.Warn("cluster: gossip disabled", "err", err)

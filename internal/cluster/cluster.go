@@ -28,6 +28,9 @@ type Config struct {
 	ClusterName   string        // logical cluster name for mDNS filtering
 	JoinToken     string        // shared secret for cluster join (empty = open)
 	JoinTimeout   time.Duration // timeout for initial join attempt (0 = default 10s)
+	// Gossip failure-detector tuning (0 = memberlist LAN defaults).
+	HeartbeatInterval time.Duration // probe interval between node heartbeats
+	SuspicionTimeout  time.Duration // approx time before a missed node is declared dead
 }
 
 // Cluster manages gossip-based membership and the node registry.
@@ -70,6 +73,7 @@ func New(cfg Config, log *slog.Logger) (*Cluster, error) {
 	if cfg.JoinTimeout > 0 {
 		mlCfg.TCPTimeout = cfg.JoinTimeout
 	}
+	tuneFailureDetector(mlCfg, cfg.HeartbeatInterval, cfg.SuspicionTimeout)
 	mlCfg.Name = cfg.NodeID
 	mlCfg.BindAddr = cfg.BindAddr
 	mlCfg.BindPort = cfg.BindPort
@@ -245,8 +249,32 @@ func (c *Cluster) UpdateMeta(caps map[string]string, tags []string) {
 	c.ml.UpdateNode(0) // trigger gossip re-broadcast
 }
 
+// tuneFailureDetector applies optional gossip failure-detector tuning to a
+// memberlist config. heartbeat sets the probe interval between node heartbeats.
+// suspicion sets the approximate time before a silent node is declared dead;
+// memberlist expresses this as SuspicionMult * log(N+1) * ProbeInterval, so the
+// multiplier is derived from suspicion/heartbeat (the log(N+1) term ≈ 1 for the
+// small LAN clusters Ziggurat targets, so actual time scales mildly with size).
+// Zero values leave the memberlist LAN defaults untouched.
+func tuneFailureDetector(mlCfg *memberlist.Config, heartbeat, suspicion time.Duration) {
+	if heartbeat > 0 {
+		mlCfg.ProbeInterval = heartbeat
+	}
+	if suspicion > 0 {
+		probe := mlCfg.ProbeInterval
+		if probe > 0 {
+			// Rounded integer division of two durations.
+			mult := int((suspicion + probe/2) / probe)
+			if mult < 1 {
+				mult = 1
+			}
+			mlCfg.SuspicionMult = mult
+		}
+	}
+}
+
 // ConfigFromNode builds a cluster Config from the node's existing configuration.
-func ConfigFromNode(nodeID string, nodeCfg config.NodeConfig, netCfg config.NetworkConfig, clusterCfg config.ClusterConfig, caps map[string]string, joinToken string) Config {
+func ConfigFromNode(nodeID string, nodeCfg config.NodeConfig, netCfg config.NetworkConfig, clusterCfg config.ClusterConfig, caps map[string]string, joinToken string, heartbeat, suspicion time.Duration) Config {
 	bindAddr := netCfg.Bind
 	if bindAddr == "" {
 		bindAddr = "0.0.0.0"
@@ -270,21 +298,23 @@ func ConfigFromNode(nodeID string, nodeCfg config.NodeConfig, netCfg config.Netw
 	}
 
 	return Config{
-		NodeID:        nodeID,
-		NodeName:      nodeCfg.Name,
-		BindAddr:      bindAddr,
-		AdvertiseAddr: advertiseAddr,
-		BindPort:      gossipPort,
-		HTTPPort:      netCfg.HTTPPort,
-		GRPCPort:      netCfg.GRPCPort,
-		Seeds:         clusterCfg.Seeds,
-		Tags:          nodeCfg.Tags,
-		Caps:          caps,
-		Role:          nodeRole(nodeCfg.Role),
-		Discovery:     clusterCfg.Discovery,
-		ClusterName:   clusterCfg.Name,
-		JoinToken:     joinToken,
-		JoinTimeout:   clusterCfg.JoinTimeout,
+		NodeID:            nodeID,
+		NodeName:          nodeCfg.Name,
+		BindAddr:          bindAddr,
+		AdvertiseAddr:     advertiseAddr,
+		BindPort:          gossipPort,
+		HTTPPort:          netCfg.HTTPPort,
+		GRPCPort:          netCfg.GRPCPort,
+		Seeds:             clusterCfg.Seeds,
+		Tags:              nodeCfg.Tags,
+		Caps:              caps,
+		Role:              nodeRole(nodeCfg.Role),
+		Discovery:         clusterCfg.Discovery,
+		ClusterName:       clusterCfg.Name,
+		JoinToken:         joinToken,
+		JoinTimeout:       clusterCfg.JoinTimeout,
+		HeartbeatInterval: heartbeat,
+		SuspicionTimeout:  suspicion,
 	}
 }
 

@@ -261,13 +261,14 @@ func EnrollWorker(coordAddr, joinToken, nodeID string, sans []string, certPath, 
 	return nil
 }
 
-// LoadOrGenerateCerts ensures TLS certificates exist for this node.
-// The coordinator generates a CA and signs its own node cert. Workers
-// generate a self-signed cert if the CA is not available locally; they
+// LoadOrGenerateCerts ensures TLS certificates exist for this node, placing
+// them in certsDir (callers pass security.tls.certs_dir, or DefaultDir(dataDir)
+// when unset). The coordinator generates a CA and signs its own node cert.
+// Workers generate a self-signed cert if the CA is not available locally; they
 // must enroll with the coordinator (via EnrollWorker) to get a CA-signed
 // cert for full mTLS authentication.
-func LoadOrGenerateCerts(dataDir, nodeID string, isCoordinator bool, sans []string) (CertPaths, error) {
-	dir := DefaultDir(dataDir)
+func LoadOrGenerateCerts(certsDir, nodeID string, isCoordinator bool, sans []string) (CertPaths, error) {
+	dir := certsDir
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return CertPaths{}, fmt.Errorf("create certs dir: %w", err)
 	}
