@@ -379,8 +379,14 @@ Streaming I/O, storage repair loop, dead letter queue, batch submission, Prometh
 ### Phase 1: Operational Baseline (trusted LAN) -- Complete
 The following features are implemented and exercised on a trusted LAN: shard rebalancing on join, drain with shard migration, resource-aware scheduling (memory/CPU/GPU admission), work stealing from overloaded workers, mDNS auto-discovery (`_ziggurat._tcp.local`), remote cancel propagation via gRPC, schema versioning for BoltDB, integration test harness, task log streaming (SSE), container execution (OCI via Podman/Docker), mTLS + join tokens + API bearer auth.
 
-### Phase 2: Advanced -- Planned
-Coordinator failover (Raft), speculative execution, cross-cluster federation, Python client, encryption at rest, cgroup resource limits.
+### Phase 2: Advanced -- In Progress
+Parametric fan-out (`ziggurat sweep`) is complete. Remaining work, grouped by theme:
+
+- **Data & reproducibility (P0):** global consumables/semaphores, provenance receipts, opt-in memoization (content-addressed result cache), reduce/gather primitive.
+- **Scavenging & reactivity:** opportunistic idle-harvest + owner-yield, reactive watch-triggered tasks.
+- **Infrastructure & hardening:** coordinator failover (Raft), speculative execution, cross-cluster federation + burst, Python client, encryption at rest, cgroup limits + isolation hardening (gates untrusted/multi-tenant use).
+
+See [`docs/spec.md` § Phase 2 Planning](docs/spec.md#phase-2-planning-workload-shapes--entities--feature-gaps) for rationale, prioritization, and the "smarter mesh, not bigger nodes" direction.
 
 ## Building
 

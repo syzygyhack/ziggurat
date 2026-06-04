@@ -983,10 +983,11 @@ Individual settings override mode presets.
 
 ## CLI Interface
 
-Commands are annotated with the phase that introduced them. All commands listed
-below are implemented; the only outstanding work is the unchecked items in
-[Implementation Status](#implementation-status) (e.g. Raft failover, global
-semaphores, encryption at rest).
+Commands are annotated with the phase that introduced them. Commands marked
+**[PLANNED]** are not yet built; everything else is implemented. The broader
+roadmap (Raft failover, semaphores, memoization, …) is in the [Phase 2
+Planning](#phase-2-planning-workload-shapes--entities--feature-gaps) section
+below.
 
 ```bash
 # ── Cluster Lifecycle ──────────────────────────────
@@ -997,7 +998,7 @@ ziggurat start --role worker --join 10.0.0.5:7102  # Worker only             [0a
 ziggurat start                       # Auto-discover peers via mDNS (cluster.discovery: auto, the default)  [0b]
 ziggurat start --join 10.0.0.5:7102  # Join via explicit address             [0a]
 
-ziggurat stop                        # Graceful shutdown                     [0b]
+ziggurat stop                        # Graceful shutdown (use Ctrl+C / SIGTERM today)  [PLANNED]
 ziggurat drain                       # Stop accepting work, finish current   [0b]
 
 # ── Cluster Status ─────────────────────────────────
@@ -1056,7 +1057,7 @@ ziggurat tasks                       # List tasks (filterable by status)     [0a
 ziggurat task <id>                   # Task detail + result + stdout/stderr  [0a]
 ziggurat cancel <id>                 # Cancel a queued/running task          [0a]
 ziggurat wait <id>                   # Block until task completes            [0a]
-ziggurat retry <id>                  # Re-submit a failed task               [0b]
+ziggurat retry <id>                  # Re-submit a failed task (pipeline retry exists)  [PLANNED]
 ziggurat dead-letter                 # List dead-lettered tasks              [1]
 ziggurat logs <id>                   # Stream stdout/stderr from task        [1]
 
@@ -1068,8 +1069,8 @@ ziggurat ls [prefix]                 # List objects                          [0a
 ziggurat rm <namespace-key>          # Delete object                         [0a]
 ziggurat pin <namespace-key>         # Prevent GC                            [0b]
 ziggurat unpin <namespace-key>       # Allow GC                              [0b]
-ziggurat store status                # Storage utilization                   [0b]
-ziggurat store rebalance             # Trigger shard rebalancing             [1]
+ziggurat store status                # Storage utilization                   [PLANNED]
+ziggurat store rebalance             # Trigger shard rebalancing (automatic on join/leave today)  [PLANNED]
 
 # ── Environments ──────────────────────────────────
 
@@ -1085,8 +1086,8 @@ ziggurat mount <mountpoint>          # FUSE mount of cluster storage         [2]
 
 # ── Diagnostics ────────────────────────────────────
 
-ziggurat health                      # Health check (JSON)                   [0a]
-ziggurat metrics                     # Key metrics summary                   [1]
+ziggurat health                      # Health check (available via GET /api/v1/health)  [PLANNED CLI]
+ziggurat metrics                     # Key metrics summary (available via GET /metrics)  [PLANNED CLI]
 ziggurat top                         # Live dashboard (nodes, tasks, load)   [1.5]
   --interval, -n <dur>              # Refresh interval (default 2s)
   --once                            # Print once and exit
@@ -1411,7 +1412,11 @@ network — all are configured under the `security` block (no CLI flags):
   gossip, so only nodes that present it can join. Set the same value in every
   node's config.
 - **API auth** (`security.api_token`): the HTTP API requires a
-  `Authorization: Bearer <token>` header.
+  `Authorization: Bearer <token>` header. **Caveat:** this is enforced
+  server-side, but the bundled `ziggurat` CLI does not yet send the token —
+  setting `api_token` will lock the CLI out (`401`). Use it only when driving
+  the HTTP API directly (e.g. `curl -H "Authorization: Bearer …"`); CLI support
+  is a pending fix. (Also noted in SECURITY.md.)
 
 Planned (Phase 2):
 
@@ -1661,6 +1666,15 @@ external DB connection caps, scratch-quota ceilings.
   just the chosen worker — the coordinator owns an authoritative consumable ledger.
   Single-coordinator is the authority until Raft; federation/multi-coordinator needs
   coordination. This is why it's a real addition, not a tweak.
+- **Correctness requirements** (must ship with it):
+  - **Leases with TTL**, not bare counters — a token is reclaimed if the holding task's
+    node crashes or its lease isn't renewed, so a dead task can't strand a seat forever.
+  - **Atomic multi-resource acquisition** — a task needing `{license.matlab:1, gpu.slot:1}`
+    acquires all-or-nothing to avoid hold-and-wait deadlock between tasks.
+  - **Visible diagnostics** — a blocked task surfaces *why* (e.g. `waiting for license.matlab`)
+    in its status, not just "queued".
+  - **Operator visibility** — a `ziggurat consumables` / `ziggurat locks` command showing
+    declared limits, current holders, and waiters.
 - Unlocks: studios (per-seat render licenses), engineering (Gurobi/Abaqus/MATLAB),
   anyone fanning out against a rate-limited external service.
 
@@ -1689,8 +1703,19 @@ hardening are load-bearing for a whole tier. Until they land, these entities rem
 - Multi-tenant teaching clusters
 - Any shop running mutually-distrusting jobs
 
-Implication: if the isolation-gated tier is a target, **cgroup limits + isolation
-hardening move up the priority list** (container execution itself is already done).
+**Containers are packaging, not a security boundary by themselves.** Running an image
+gives hermetic *dependencies*, not protection from hostile code. Reaching the untrusted
+tier requires an explicit hardening stack, all currently unbuilt:
+- cgroup resource limits (CPU/memory/disk I/O/pids) — the unchecked Phase 2 box;
+- rootless execution (Podman rootless / userns remapping);
+- a syscall/MAC sandbox (seccomp profile, AppArmor/SELinux, or the platform equivalent);
+- network egress control (deny-by-default, allowlist per task);
+- filesystem restrictions (read-only rootfs, no host bind-mounts beyond the workspace);
+- process limits and **guaranteed per-task temp-dir cleanup** (no cross-task residue).
+
+Implication: if the isolation-gated tier is a target, **this whole hardening stack moves
+up the priority list** (container execution itself is already done; it is the floor, not
+the ceiling).
 
 ### Smarter mesh, not bigger nodes
 
@@ -1704,9 +1729,13 @@ primitives make the memory axis nearly free: the BLAKE3 content store, the fact 
 fingerprint-keyed env reuse.
 
 **Smarter memory — memoization + provenance (paired, P0; the strongest novel bet).**
-Because inputs are hashed at submission and env reuse is fingerprinted, a task's full
-determinant — `command + resolved input hashes + env fingerprint + image` — is computable
-*before* execution. Two features fall out of that one fact:
+Because inputs are hashed at submission and env reuse is fingerprinted, most of a task's
+determinant is computable *before* execution. The cache key must be **strict** or hits
+will be silently wrong — it must hash all of: command + args, resolved input hashes,
+artifact hashes, task params, the env setup command + env fingerprint, the relevant
+environment variables, the container image **digest** (never the mutable tag), the
+`os`/`arch` constraints, any capability constraints that affect behavior, and the
+Ziggurat version when execution semantics change. Two features fall out of that:
 - **Memoization.** Hash the determinant into a cache key; if a prior task with that key
   completed, return its `output_ref` instead of re-executing. Cache entries (key →
   output_ref) live in the metadata DB and replicate like other state. **Opt-in only**
@@ -1728,15 +1757,26 @@ determinant — `command + resolved input hashes + env fingerprint + image` — 
 **Smarter time — opportunistic harvest + reactive triggers.**
 - **Idle-harvest + owner-yield** is the strongest fit for the homelab / lab / office-
   workstation personas already in the entities table: a node contributes when idle and
-  **gracefully yields** when its owner returns (load threshold, interactive session, or
-  schedule). A local pressure signal drives the admission ceiling to zero and triggers a
-  drain-style preemption; preempted tasks requeue elsewhere — the requeue + at-least-once
-  + drain machinery already exists. Main cost is partial-work waste (mitigate with
-  speculative re-dispatch / checkpoint-friendly tasks). This *grows* usable capacity from
-  machines people already own — Condor-style cycle scavenging for the zero-config era.
+  **gracefully yields** when its owner returns. A local pressure signal drives the
+  admission ceiling to zero and triggers a drain-style preemption; preempted tasks
+  requeue elsewhere — the requeue + at-least-once + drain machinery already exists. Main
+  cost is partial-work waste (mitigate with speculative re-dispatch / checkpoint-friendly
+  tasks). This *grows* usable capacity from machines people already own — Condor-style
+  cycle scavenging for the zero-config era.
+  - **Define "owner returns" deliberately, and start conservative.** The candidate signals
+    differ per OS and in how invasive they are: CPU/GPU load threshold, an active
+    interactive login session, keyboard/mouse activity, working-hours schedule, AC-vs-
+    battery power state, or explicit manual drain. **Ship the non-invasive ones first** —
+    "drain on local load / on a schedule / on manual signal" — rather than activity
+    monitoring, which is OS-specific and a privacy/UX hazard. Treat richer signals as
+    opt-in per platform.
 - **Reactive / watch-triggered tasks**: run task T when a namespace key/prefix changes.
-  Kept discrete, debounced, and idempotent — not a streaming runtime, so it stays on the
-  grain. Unlocks lightweight CI and incremental corpus processing.
+  Keep it **deliberately small** — `namespace event → debounce → submit task`. **No**
+  streaming, continuous pipes, event joins, or stateful workflow logic (that way lies an
+  accidental workflow engine). Must include **loop prevention**: a task triggered by a
+  prefix must not write back under that prefix and retrigger itself forever (detect the
+  cycle, or forbid the trigger prefix from overlapping the task's output namespace).
+  Unlocks lightweight CI and incremental corpus processing.
 
 **Smarter reach — burst.** Local overflow-offload already moves work from a saturated
 worker to a peer; generalize the same pressure signal to burst to a second cluster or a
@@ -1751,6 +1791,8 @@ MapReduce shape (sweep → reduce) the fan-out tier keeps reaching for.
 
 ### Prioritization summary
 
+Qualitative read:
+
 - **Most doors per unit effort:** (1) sweep primitive [done; renderers, sweepers, bio,
   journalism, ML prep — basically everyone] and (2) global semaphores [the
   license-constrained professional tier].
@@ -1764,6 +1806,22 @@ MapReduce shape (sweep → reduce) the fan-out tier keeps reaching for.
 - **Decide deliberately, don't drift:** the warm-worker fork and the cgroup/isolation
   hardening dependency.
 - **Ruled out:** virtual verticalization (resource pooling across nodes) — off-grain.
+
+Working build order (incorporating external review):
+
+1. **Global consumables / semaphores** — best-defined user value; ship with leases/TTL,
+   atomic acquisition, diagnostics, and an operator command.
+2. **Provenance / receipts** — ship *before/with* memoization; it's the trust surface.
+3. **Memoization** — opt-in, on provenance-backed strict cache keys.
+4. **Reduce / gather primitive.**
+5. **Python client** — adoption, not architecture.
+6. **Cgroup enforcement + isolation hardening** — *move up* if untrusted/multi-tenant
+   (autograders, teaching, security) is a target market.
+7. **Opportunistic idle-harvest** (conservative signals first).
+8. **Reactive triggers** (kept minimal).
+9. **Coordinator failover (Raft).**
+10. **Burst / federation** — only after auth + failure semantics are tighter.
+11. **Warm / sticky worker pools** — only after an explicit design review.
 
 ---
 
