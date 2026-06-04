@@ -233,6 +233,38 @@ func TestBearerToken_Precedence(t *testing.T) {
 	}
 }
 
+func TestBearerToken_ConfigOnlyForLocalTarget(t *testing.T) {
+	// Config file carrying the local node's API token.
+	cfgPath := filepath.Join(t.TempDir(), "ziggurat.yaml")
+	if err := os.WriteFile(cfgPath, []byte("security:\n  api_token: \"cfgtok\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	defer func(tf, cf, a string) { tokenFlag, cfgFile, addr = tf, cf, a }(tokenFlag, cfgFile, addr)
+	tokenFlag = ""
+	cfgFile = cfgPath
+	t.Setenv("ZIGGURAT_TOKEN", "")
+
+	// Local/default target (no --addr, no ZIGGURAT_ADDR): config token IS used.
+	addr = ""
+	t.Setenv("ZIGGURAT_ADDR", "")
+	if got := bearerToken(); got != "cfgtok" {
+		t.Errorf("local target: got %q, want cfgtok", got)
+	}
+
+	// Explicit --addr redirect: the local config token must NOT leak.
+	addr = "remote.example:7100"
+	if got := bearerToken(); got != "" {
+		t.Errorf("--addr redirect leaked config token: got %q, want empty", got)
+	}
+
+	// ZIGGURAT_ADDR redirect: same protection.
+	addr = ""
+	t.Setenv("ZIGGURAT_ADDR", "remote.example:7100")
+	if got := bearerToken(); got != "" {
+		t.Errorf("ZIGGURAT_ADDR redirect leaked config token: got %q, want empty", got)
+	}
+}
+
 func TestDoGet_SendsAuthHeader(t *testing.T) {
 	var gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

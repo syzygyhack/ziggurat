@@ -33,6 +33,25 @@ func TestDefaultConfig(t *testing.T) {
 	}
 }
 
+// TestLoadConfig_DeprecatedMemoryLimit ensures a config still containing the
+// deprecated compute.memory_limit key loads (strict KnownFields parsing would
+// otherwise reject it). The key is accepted but ignored.
+func TestLoadConfig_DeprecatedMemoryLimit(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "ziggurat.yaml")
+	yaml := "compute:\n  concurrency: 2\n  memory_limit: 8589934592\n"
+	if err := os.WriteFile(cfgPath, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(cfgPath)
+	if err != nil {
+		t.Fatalf("config with deprecated memory_limit failed to load: %v", err)
+	}
+	if cfg.Compute.Concurrency != 2 {
+		t.Errorf("expected concurrency 2, got %d", cfg.Compute.Concurrency)
+	}
+}
+
 func TestLoadConfig_YAML(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "ziggurat.yaml")

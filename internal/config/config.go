@@ -86,6 +86,7 @@ type TierConfig struct {
 
 type ComputeConfig struct {
 	Concurrency           int           `yaml:"concurrency"`
+	MemoryLimit           int64         `yaml:"memory_limit"` // Deprecated: ignored. Per-task admission uses resources.memory; a global cap awaits cgroup enforcement (Phase 2). Retained so existing configs still load under strict parsing.
 	TaskTimeout           time.Duration `yaml:"task_timeout"`
 	MaxOutputSize         int64         `yaml:"max_output_size"`
 	CancelGrace           time.Duration `yaml:"cancel_grace"`

@@ -949,7 +949,6 @@ storage:
 # Compute
 compute:
   concurrency: 0          # 0 = auto (GOMAXPROCS)
-  memory_limit: 0         # 0 = no limit
   task_timeout: 5m        # default per-task timeout
   max_output_size: 1GB    # default per-task output limit
   cancel_grace: 10s       # SIGTERM → SIGKILL grace period

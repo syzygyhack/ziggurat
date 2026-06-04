@@ -576,11 +576,15 @@ The CLI authenticates automatically, resolving the token in this order:
 
 1. `--token` flag
 2. `ZIGGURAT_TOKEN` environment variable
-3. `security.api_token` in the config file
+3. `security.api_token` in the config file — **only** when the target was not
+   redirected with `--addr` or `ZIGGURAT_ADDR`
 
-So a client on the coordinator host picks it up from config; a remote client
-sets `--token` or `ZIGGURAT_TOKEN`. Direct HTTP clients send the header
-themselves, e.g. `curl -H "Authorization: Bearer <token>" ...`.
+The config-file token is the *local* node's secret, so the CLI never attaches it
+to a request you explicitly point at another host (it would otherwise leak the
+secret to that host). A client on the coordinator host picks it up from config
+automatically; when targeting a **remote** node (`--addr` / `ZIGGURAT_ADDR`),
+pass that node's token via `--token` or `ZIGGURAT_TOKEN`. Direct HTTP clients
+send the header themselves, e.g. `curl -H "Authorization: Bearer <token>" ...`.
 
 Encryption at rest is **not yet implemented** (Phase 2).
 

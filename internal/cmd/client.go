@@ -52,8 +52,16 @@ func apiURL(path string) string {
 // bearerToken resolves the API bearer token using the precedence:
 //  1. --token flag
 //  2. ZIGGURAT_TOKEN env var
-//  3. security.api_token from the config file
+//  3. security.api_token from the config file — ONLY when the target address
+//     was not explicitly redirected (see below)
 //  4. "" (no auth header sent)
+//
+// The config-file token is the *local* node's secret. We must not attach it to
+// a request the user explicitly pointed at another host with --addr or
+// ZIGGURAT_ADDR, or we would disclose the local secret to that remote. So the
+// config fallback applies only when the destination came from config
+// (client.addr) or the local default — i.e. neither --addr nor ZIGGURAT_ADDR is
+// set. Remote targets must supply --token or ZIGGURAT_TOKEN explicitly.
 func bearerToken() string {
 	if tokenFlag != "" {
 		return tokenFlag
@@ -61,10 +69,12 @@ func bearerToken() string {
 	if env := os.Getenv("ZIGGURAT_TOKEN"); env != "" {
 		return env
 	}
-	// Same-host convenience: read the server's configured token. Ignore load
-	// errors here — apiBase() already handles an explicit --config that fails.
-	if cfg, err := config.LoadConfig(cfgFile); err == nil && cfg.Security.APIToken != "" {
-		return cfg.Security.APIToken
+	if addr == "" && os.Getenv("ZIGGURAT_ADDR") == "" {
+		// Ignore load errors here — apiBase() already handles an explicit
+		// --config that fails to load.
+		if cfg, err := config.LoadConfig(cfgFile); err == nil && cfg.Security.APIToken != "" {
+			return cfg.Security.APIToken
+		}
 	}
 	return ""
 }
