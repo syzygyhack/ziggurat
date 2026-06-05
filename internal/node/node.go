@@ -54,6 +54,7 @@ type Node struct {
 	cancelMetrics    context.CancelFunc
 	cancelDispatch   context.CancelFunc
 	cancelCapRefresh context.CancelFunc
+	cancelEnroll     context.CancelFunc
 }
 
 // registryPeerProvider adapts the cluster registry to store.PeerProvider.
@@ -214,6 +215,9 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 	// Forward-declare replicator so the OnLeave closure can reference it.
 	// It is initialized after gRPC transport is set up (below).
 	var repl *store.Replicator
+	// Forward-declared so the OnLeave closure can evict a departed node's
+	// cached gRPC connection; assigned once the transport client is built.
+	var tClient *transport.Client
 
 	// Create repair context early so the OnLeave closure can use it
 	// instead of the parent Start context. This ensures triggered repairs
@@ -223,13 +227,18 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 	// When a node departs, re-queue any tasks it was running and trigger
 	// an immediate repair pass for under-replicated objects.
 	if cl != nil {
-		cl.Registry.OnLeave(func(departedID string) {
+		cl.Registry.OnLeave(func(departedID, grpcAddr string) {
 			n := c.RequeueByWorker(departedID)
 			if n > 0 {
 				log.Info("requeued tasks from departed node", "node", departedID, "count", n)
 			}
 			// Drop the departed node's load/limit tracking.
 			c.ClearWorker(departedID)
+			// Evict the cached gRPC connection so it doesn't linger after the
+			// node is gone.
+			if tClient != nil && grpcAddr != "" {
+				tClient.EvictAddr(grpcAddr)
+			}
 			if repl != nil {
 				// Purge stale placements BEFORE repair so the repair pass
 				// doesn't count the departed node toward the replication factor.
@@ -276,29 +285,11 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 		apiSrv.SetEnrollConfig(certPaths.CACert, certPaths.CAKey, cfg.Security.JoinToken)
 	}
 
-	// Workers without a CA-signed cert attempt enrollment from coordinators
-	// found in the seed list. The cert takes effect on next restart.
-	if cfg.Security.TLS.Enabled && role == "worker" && cfg.Security.JoinToken != "" {
-		if !certs.HasCA(certPaths.CACert, certPaths.CAKey) {
-			go func() {
-				coordAddr := findCoordinator(cfg)
-				if coordAddr == "" {
-					return
-				}
-				if err := certs.EnrollWorker(coordAddr, cfg.Security.JoinToken, nodeID, collectSANs(cfg), certPaths.Cert, certPaths.Key, certPaths.CACert); err != nil {
-					log.Warn("worker enrollment failed", "coordinator", coordAddr, "err", err)
-				} else {
-					log.Info("worker enrolled — restart to use CA-signed cert", "coordinator", coordAddr)
-				}
-			}()
-		}
-	}
-
 	// Initialize gRPC transport server and client.
 	grpcSrv := grpc.NewServer(grpcCreds)
 	tSrv := transport.NewServer(c, s, w, log.With("component", "grpc"))
 	pb.RegisterZigguratNodeServer(grpcSrv, tSrv)
-	tClient := transport.NewClientWithCreds(grpcDialOpt)
+	tClient = transport.NewClientWithCreds(grpcDialOpt)
 
 	// Wire storage replication. The Replicator uses the transport client to
 	// push shards and the cluster registry to discover peers.
@@ -396,6 +387,29 @@ func Start(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Node, er
 		grpcSrv:    grpcSrv,
 		transport:  tClient,
 		tasksDB:    tasksDB,
+	}
+
+	// Workers without a CA-signed cert enroll from a coordinator in the
+	// background; the signed cert takes effect on next restart. Tracked via the
+	// WaitGroup and bound to a cancellable context so shutdown waits for it and
+	// can interrupt the network call.
+	if cfg.Security.TLS.Enabled && role == "worker" && cfg.Security.JoinToken != "" &&
+		!certs.HasCA(certPaths.CACert, certPaths.CAKey) {
+		enrollCtx, cancelEnroll := context.WithCancel(ctx)
+		n.cancelEnroll = cancelEnroll
+		n.wg.Add(1)
+		go func() {
+			defer n.wg.Done()
+			coordAddr := findCoordinator(cfg)
+			if coordAddr == "" {
+				return
+			}
+			if err := certs.EnrollWorker(enrollCtx, coordAddr, cfg.Security.JoinToken, nodeID, collectSANs(cfg), certPaths.Cert, certPaths.Key, certPaths.CACert); err != nil {
+				log.Warn("worker enrollment failed", "coordinator", coordAddr, "err", err)
+			} else {
+				log.Info("worker enrolled — restart to use CA-signed cert", "coordinator", coordAddr)
+			}
+		}()
 	}
 
 	// Start worker loop (skip for coordinator-only nodes).
@@ -600,6 +614,9 @@ func (n *Node) cancelBackground() {
 	}
 	if n.cancelCapRefresh != nil {
 		n.cancelCapRefresh()
+	}
+	if n.cancelEnroll != nil {
+		n.cancelEnroll()
 	}
 	n.wg.Wait()
 }

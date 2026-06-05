@@ -16,9 +16,9 @@ type Registry struct {
 	mu      sync.RWMutex
 	nodes   map[string]*model.Node // keyed by node ID
 	log     *slog.Logger
-	onJoin  func(nodeID string) // optional callback when a new node joins
-	onLeave func(nodeID string) // optional callback when a node departs
-	Ring    *HashRing           // consistent hash ring, updated on join/leave
+	onJoin  func(nodeID string)           // optional callback when a new node joins
+	onLeave func(nodeID, grpcAddr string) // optional callback when a node departs
+	Ring    *HashRing                     // consistent hash ring, updated on join/leave
 }
 
 // NewRegistry creates an empty node registry with a consistent hash ring.
@@ -40,9 +40,10 @@ func (r *Registry) OnJoin(fn func(nodeID string)) {
 }
 
 // OnLeave registers a callback that fires after a node is removed from the
-// registry. The callback receives the departed node's ID. Used by the
-// coordinator to re-queue tasks from failed nodes.
-func (r *Registry) OnLeave(fn func(nodeID string)) {
+// registry. The callback receives the departed node's ID and its last-known
+// gRPC address (which may be empty). Used to re-queue tasks from failed nodes
+// and to evict cached transport connections.
+func (r *Registry) OnLeave(fn func(nodeID, grpcAddr string)) {
 	r.mu.Lock()
 	r.onLeave = fn
 	r.mu.Unlock()
@@ -106,9 +107,10 @@ func (r *Registry) Remove(mn *memberlist.Node) {
 	if err != nil {
 		// Fall back to removing by address.
 		r.mu.Lock()
-		var removedID string
+		var removedID, removedAddr string
 		for id, n := range r.nodes {
 			if n.Address == mn.Address() {
+				removedAddr = n.GRPCAddress
 				delete(r.nodes, id)
 				removedID = id
 				r.log.Info("cluster: node left", "id", id, "addr", mn.Address())
@@ -121,12 +123,16 @@ func (r *Registry) Remove(mn *memberlist.Node) {
 			r.Ring.RemoveNode(removedID)
 		}
 		if fn != nil && removedID != "" {
-			fn(removedID)
+			fn(removedID, removedAddr)
 		}
 		return
 	}
 
 	r.mu.Lock()
+	var grpcAddr string
+	if n, ok := r.nodes[meta.ID]; ok {
+		grpcAddr = n.GRPCAddress
+	}
 	delete(r.nodes, meta.ID)
 	fn := r.onLeave
 	r.mu.Unlock()
@@ -134,7 +140,7 @@ func (r *Registry) Remove(mn *memberlist.Node) {
 	r.Ring.RemoveNode(meta.ID)
 	r.log.Info("cluster: node left", "id", meta.ID, "name", meta.Name)
 	if fn != nil {
-		fn(meta.ID)
+		fn(meta.ID, grpcAddr)
 	}
 }
 

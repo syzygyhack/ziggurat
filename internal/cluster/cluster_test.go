@@ -201,7 +201,7 @@ func TestCluster_OnLeaveCallback(t *testing.T) {
 
 	// Register OnLeave callback on node-1's registry.
 	var departedID atomic.Value
-	c1.Registry.OnLeave(func(nodeID string) {
+	c1.Registry.OnLeave(func(nodeID, _ string) {
 		departedID.Store(nodeID)
 	})
 

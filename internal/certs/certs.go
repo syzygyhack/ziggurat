@@ -2,6 +2,7 @@ package certs
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -185,7 +186,7 @@ func ReadCertPEM(path string) ([]byte, error) {
 
 // EnrollWorker connects to the coordinator's enrollment endpoint, submits
 // a CSR with the join token, and saves the signed certificate and CA cert.
-func EnrollWorker(coordAddr, joinToken, nodeID string, sans []string, certPath, keyPath, caCertPath string) error {
+func EnrollWorker(ctx context.Context, coordAddr, joinToken, nodeID string, sans []string, certPath, keyPath, caCertPath string) error {
 	// Generate a keypair for the worker.
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -224,7 +225,12 @@ func EnrollWorker(coordAddr, joinToken, nodeID string, sans []string, certPath, 
 	}
 
 	url := fmt.Sprintf("http://%s/api/v1/cluster/enroll", coordAddr)
-	resp, err := http.Post(url, "application/json", bytes.NewReader(reqBody))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqBody))
+	if err != nil {
+		return fmt.Errorf("build enroll request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("enroll request to %s: %w", coordAddr, err)
 	}
