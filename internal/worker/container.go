@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -78,64 +77,32 @@ func runContainer(ctx context.Context, runtime, image, workspace string, command
 
 	cmd := exec.CommandContext(ctx, runtime, args...)
 	cmd.Dir = workspace
-
-	var stdoutBuf, stderrBuf bytes.Buffer
-	if logBroadcaster != nil {
-		cmd.Stdout = io.MultiWriter(&stdoutBuf, logBroadcaster.Writer(taskID, "stdout"))
-		cmd.Stderr = io.MultiWriter(&stderrBuf, logBroadcaster.Writer(taskID, "stderr"))
-	} else {
-		cmd.Stdout = &stdoutBuf
-		cmd.Stderr = &stderrBuf
-	}
+	stdoutBuf, stderrBuf := captureOutput(cmd, logBroadcaster, taskID)
 
 	if err := cmd.Start(); err != nil {
 		return containerResult{ExitCode: -1, Error: fmt.Sprintf("container start: %v", err)}
 	}
 
-	// Wait for process exit or context cancellation.
-	waitCh := make(chan error, 1)
-	go func() {
-		waitCh <- cmd.Wait()
-	}()
-
-	var runErr error
-	forcedShutdown := false
-	select {
-	case runErr = <-waitCh:
-		// Container exited on its own.
-	case <-ctx.Done():
-		// Context cancelled — graceful shutdown via container stop.
-		forcedShutdown = true
-		log.Debug("stopping container", "name", containerName, "runtime", runtime)
-		stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		stopCmd := exec.CommandContext(stopCtx, runtime, "stop", containerName)
-		stopCmd.Run() // best-effort; ignore errors (container may already be gone)
-		stopCancel()
-
-		select {
-		case runErr = <-waitCh:
-			// Container stopped within grace period.
-		case <-time.After(5 * time.Second):
-			// Force kill.
+	// Cancel via `runtime stop`, escalating to `runtime kill` after a grace
+	// period. Each control command gets its own bounded context.
+	exitCode, forcedShutdown, runErr := runManaged(ctx, cmd, 5*time.Second,
+		func() {
+			log.Debug("stopping container", "name", containerName, "runtime", runtime)
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer stopCancel()
+			exec.CommandContext(stopCtx, runtime, "stop", containerName).Run() // best-effort
+		},
+		func() {
 			killCtx, killCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			killCmd := exec.CommandContext(killCtx, runtime, "kill", containerName)
-			killCmd.Run()
-			killCancel()
-			runErr = <-waitCh
-		}
-	}
-
-	exitCode := 0
+			defer killCancel()
+			exec.CommandContext(killCtx, runtime, "kill", containerName).Run()
+		})
 	if runErr != nil {
-		if exitErr, ok := runErr.(*exec.ExitError); ok {
-			exitCode = exitErr.ExitCode()
-		} else {
-			return containerResult{
-				ExitCode: -1,
-				Stdout:   stdoutBuf.String(),
-				Stderr:   stderrBuf.String(),
-				Error:    fmt.Sprintf("container exec error: %v", runErr),
-			}
+		return containerResult{
+			ExitCode: -1,
+			Stdout:   stdoutBuf.String(),
+			Stderr:   stderrBuf.String(),
+			Error:    fmt.Sprintf("container exec error: %v", runErr),
 		}
 	}
 

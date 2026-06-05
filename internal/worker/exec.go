@@ -150,15 +150,7 @@ func Execute(ctx context.Context, task *model.Task, s *store.Store, cfg config.C
 		cmd := exec.Command(task.Command[0], task.Command[1:]...)
 		cmd.Dir = workspace
 		cmd.Env = env
-
-		var stdoutBuf, stderrBuf bytes.Buffer
-		if logBroadcaster != nil {
-			cmd.Stdout = io.MultiWriter(&stdoutBuf, logBroadcaster.Writer(task.ID, "stdout"))
-			cmd.Stderr = io.MultiWriter(&stderrBuf, logBroadcaster.Writer(task.ID, "stderr"))
-		} else {
-			cmd.Stdout = &stdoutBuf
-			cmd.Stderr = &stderrBuf
-		}
+		stdoutBuf, stderrBuf := captureOutput(cmd, logBroadcaster, task.ID)
 
 		// Start process in its own process group for clean cancellation.
 		SetProcessGroup(cmd)
@@ -171,42 +163,21 @@ func Execute(ctx context.Context, task *model.Task, s *store.Store, cfg config.C
 			}
 		}
 
-		// Wait for process exit or context cancellation (timeout / user cancel).
-		waitCh := make(chan error, 1)
-		go func() {
-			waitCh <- cmd.Wait()
-		}()
-
-		var cmdErr error
-		select {
-		case cmdErr = <-waitCh:
-			// Process exited on its own.
-		case <-ctx.Done():
-			// Context cancelled — graceful shutdown: SIGTERM → grace → SIGKILL.
-			forcedShutdown = true
-			SendTermSignal(cmd)
-			select {
-			case cmdErr = <-waitCh:
-				// Process exited within grace period.
-			case <-time.After(cfg.CancelGrace):
-				KillProcess(cmd)
-				cmdErr = <-waitCh
+		// Cancel via SIGTERM, escalating to SIGKILL after the grace period.
+		ec, forced, runErr := runManaged(ctx, cmd, cfg.CancelGrace,
+			func() { SendTermSignal(cmd) },
+			func() { KillProcess(cmd) })
+		forcedShutdown = forced
+		if runErr != nil {
+			return &ExecResult{
+				ExitCode: -1,
+				Stdout:   truncate(stdoutBuf.String(), 64*1024),
+				Stderr:   truncate(stderrBuf.String(), 64*1024),
+				WallTime: time.Since(start),
+				Error:    fmt.Sprintf("exec error: %v", runErr),
 			}
 		}
-
-		if cmdErr != nil {
-			if exitErr, ok := cmdErr.(*exec.ExitError); ok {
-				exitCode = exitErr.ExitCode()
-			} else {
-				return &ExecResult{
-					ExitCode: -1,
-					Stdout:   truncate(stdoutBuf.String(), 64*1024),
-					Stderr:   truncate(stderrBuf.String(), 64*1024),
-					WallTime: time.Since(start),
-					Error:    fmt.Sprintf("exec error: %v", cmdErr),
-				}
-			}
-		}
+		exitCode = ec
 		stdoutStr = stdoutBuf.String()
 		stderrStr = stderrBuf.String()
 		errMsg = ""
@@ -274,6 +245,55 @@ func Execute(ctx context.Context, task *model.Task, s *store.Store, cfg config.C
 	}
 
 	return result
+}
+
+// captureOutput wires a command's stdout/stderr to in-memory buffers, also
+// teeing to the log broadcaster (for live SSE streaming) when one is provided.
+func captureOutput(cmd *exec.Cmd, lb *LogBroadcaster, taskID string) (stdout, stderr *bytes.Buffer) {
+	stdout = &bytes.Buffer{}
+	stderr = &bytes.Buffer{}
+	if lb != nil {
+		cmd.Stdout = io.MultiWriter(stdout, lb.Writer(taskID, "stdout"))
+		cmd.Stderr = io.MultiWriter(stderr, lb.Writer(taskID, "stderr"))
+	} else {
+		cmd.Stdout = stdout
+		cmd.Stderr = stderr
+	}
+	return stdout, stderr
+}
+
+// runManaged waits for an already-started command to exit. If ctx is cancelled
+// before exit, it runs onCancel, then — if the process hasn't exited within
+// grace — onKill, before reaping it. forced reports whether cancellation was
+// triggered. A non-ExitError wait failure is returned in err; otherwise
+// exitCode is the process's exit code (ExitError exits are not errors).
+func runManaged(ctx context.Context, cmd *exec.Cmd, grace time.Duration, onCancel, onKill func()) (exitCode int, forced bool, err error) {
+	waitCh := make(chan error, 1)
+	go func() { waitCh <- cmd.Wait() }()
+
+	var runErr error
+	select {
+	case runErr = <-waitCh:
+		// Exited on its own.
+	case <-ctx.Done():
+		forced = true
+		onCancel()
+		select {
+		case runErr = <-waitCh:
+			// Exited within the grace period.
+		case <-time.After(grace):
+			onKill()
+			runErr = <-waitCh
+		}
+	}
+
+	if runErr != nil {
+		if exitErr, ok := runErr.(*exec.ExitError); ok {
+			return exitErr.ExitCode(), forced, nil
+		}
+		return -1, forced, runErr
+	}
+	return 0, forced, nil
 }
 
 // fetchObject retrieves an object by hash into dest. If the object is a tar
