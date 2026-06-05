@@ -1820,6 +1820,30 @@ Working build order (incorporating external review):
 10. **Burst / federation** — only after auth + failure semantics are tighter.
 11. **Warm / sticky worker pools** — only after an explicit design review.
 
+### Known limitations & deferred engineering
+
+Engineering debt surfaced by code review, distinct from the feature roadmap
+above. None are regressions; each is a bounded improvement with a noted trigger.
+
+- **Erasure coding buffers the whole object in memory.** Encode/decode use the
+  in-memory reedsolomon API, so a multi-GB EC object peaks at ~2x its size in
+  RAM (see the note on `Store.createErasureShards`). Fix: switch to
+  `reedsolomon.StreamEncoder`. Deferred until multi-GB EC objects are a real
+  target; until then keep large objects below the EC tier threshold.
+- **FUSE reads cache each file fully, per inode, with no eviction.**
+  `zigFile.Read` populates an in-memory copy on first read and holds it for the
+  inode's lifetime, so browsing large or many files via the mount can blow up
+  memory. Fix: serve reads with HTTP Range requests (streaming) or drop the
+  cache on last close.
+- **Remote task results infer terminal state.** The origin coordinator
+  reconstructs a remote task's terminal status from its `exit_code`/`error`
+  rather than a status field carried on the wire (`CompleteRemote` →
+  `finalize`). Correct today; an explicit transported status would be more
+  robust.
+- **Container cancellation lacks an end-to-end test.** The shared cancel path
+  (`runManaged`) is unit-tested, but `runtime stop`/`kill` behavior against a
+  real Podman/Docker container is not exercised in CI.
+
 ---
 
 ## Design Decisions (Resolved)
