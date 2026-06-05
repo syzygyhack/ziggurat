@@ -67,40 +67,42 @@ func (q *Queue) Pop(tags []string, caps map[string]string, filters ...func(*mode
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	tagSet := make(map[string]bool, len(tags))
-	for _, t := range tags {
-		tagSet[t] = true
-	}
+	tagSet := makeTagSet(tags)
+	return q.popBest(func(e *taskEntry) bool {
+		return matchesTags(e.task.Requires, tagSet) &&
+			evalCachedConstraints(e.constraints, caps) &&
+			matchesResources(e.task.Resources, caps) &&
+			matchesRuntime(e.task, caps) &&
+			applyFilters(e.task, filters)
+	})
+}
 
-	// Linear scan: find the best (highest priority, lowest seq) match.
+// popBest scans the heap for the best (highest-priority, lowest-seq) entry
+// satisfying match, removes it, and returns its task — or nil if none match.
+// The caller must hold q.mu.
+func (q *Queue) popBest(match func(*taskEntry) bool) *model.Task {
 	bestIdx := -1
 	for i, entry := range q.heap {
-		if !matchesTags(entry.task.Requires, tagSet) {
-			continue
-		}
-		if !evalCachedConstraints(entry.constraints, caps) {
-			continue
-		}
-		if !matchesResources(entry.task.Resources, caps) {
-			continue
-		}
-		if !matchesRuntime(entry.task, caps) {
-			continue
-		}
-		if !applyFilters(entry.task, filters) {
+		if !match(entry) {
 			continue
 		}
 		if bestIdx < 0 || q.heap.Less(i, bestIdx) {
 			bestIdx = i
 		}
 	}
-
 	if bestIdx < 0 {
 		return nil
 	}
+	return heap.Remove(&q.heap, bestIdx).(*taskEntry).task
+}
 
-	entry := heap.Remove(&q.heap, bestIdx).(*taskEntry)
-	return entry.task
+// makeTagSet builds a set from a tag slice for O(1) membership tests.
+func makeTagSet(tags []string) map[string]bool {
+	set := make(map[string]bool, len(tags))
+	for _, t := range tags {
+		set[t] = true
+	}
+	return set
 }
 
 // applyFilters runs all filter functions against a task. Returns true
@@ -123,33 +125,16 @@ func (q *Queue) PopForRemote(localTags []string, localCaps map[string]string, pr
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	tagSet := make(map[string]bool, len(localTags))
-	for _, t := range localTags {
-		tagSet[t] = true
-	}
-
-	bestIdx := -1
-	for i, entry := range q.heap {
-		localMatch := matchesTags(entry.task.Requires, tagSet) &&
-			evalCachedConstraints(entry.constraints, localCaps) &&
-			matchesResources(entry.task.Resources, localCaps) &&
-			matchesRuntime(entry.task, localCaps)
-		// Skip tasks the local worker can run, unless affinity pins them to a
+	tagSet := makeTagSet(localTags)
+	return q.popBest(func(e *taskEntry) bool {
+		localMatch := matchesTags(e.task.Requires, tagSet) &&
+			evalCachedConstraints(e.constraints, localCaps) &&
+			matchesResources(e.task.Resources, localCaps) &&
+			matchesRuntime(e.task, localCaps)
+		// Take tasks the local worker can't run, plus any affinity-pinned to a
 		// remote node that currently has capacity.
-		if localMatch && (prefersRemote == nil || !prefersRemote(entry.task)) {
-			continue
-		}
-		if bestIdx < 0 || q.heap.Less(i, bestIdx) {
-			bestIdx = i
-		}
-	}
-
-	if bestIdx < 0 {
-		return nil
-	}
-
-	entry := heap.Remove(&q.heap, bestIdx).(*taskEntry)
-	return entry.task
+		return !localMatch || (prefersRemote != nil && prefersRemote(e.task))
+	})
 }
 
 // Remove removes a task by ID from the queue. Used for cancellation.
@@ -206,37 +191,24 @@ func matchesTags(requires []string, tags map[string]bool) bool {
 // matchesResources checks that the node has enough CPU cores, memory, and
 // GPUs for the task's resource requests. A zero request means no requirement.
 func matchesResources(req model.ResourceReq, caps map[string]string) bool {
-	if req.CPUCores > 0 {
-		v, ok := caps["cpu.cores"]
-		if !ok {
-			return false
-		}
-		n, err := strconv.Atoi(v)
-		if err != nil || n < req.CPUCores {
-			return false
-		}
+	return capAtLeast(caps, "cpu.cores", int64(req.CPUCores)) &&
+		capAtLeast(caps, "mem.total", req.Memory) &&
+		capAtLeast(caps, "gpu.count", int64(req.GPUs))
+}
+
+// capAtLeast reports whether the integer capability named key is present and at
+// least min. A non-positive min is always satisfied (no requirement). A missing
+// or unparseable capability fails.
+func capAtLeast(caps map[string]string, key string, min int64) bool {
+	if min <= 0 {
+		return true
 	}
-	if req.Memory > 0 {
-		v, ok := caps["mem.total"]
-		if !ok {
-			return false
-		}
-		n, err := strconv.ParseInt(v, 10, 64)
-		if err != nil || n < req.Memory {
-			return false
-		}
+	v, ok := caps[key]
+	if !ok {
+		return false
 	}
-	if req.GPUs > 0 {
-		v, ok := caps["gpu.count"]
-		if !ok {
-			return false
-		}
-		n, err := strconv.Atoi(v)
-		if err != nil || n < req.GPUs {
-			return false
-		}
-	}
-	return true
+	n, err := strconv.ParseInt(v, 10, 64)
+	return err == nil && n >= min
 }
 
 // parseConstraints pre-parses constraint expression strings into
