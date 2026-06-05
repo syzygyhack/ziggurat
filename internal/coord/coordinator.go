@@ -409,19 +409,36 @@ func (c *Coordinator) QueueLen() int {
 	return c.queue.Len()
 }
 
-// Complete records a task result from the worker.
+// Complete records a task result from a locally-executed worker, applying
+// retry logic on non-zero exit.
 func (c *Coordinator) Complete(id string, exitCode int, stdout, stderr, errMsg, outputRef string, outputBytes int64) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	return c.finalize(id, exitCode, stdout, stderr, errMsg, outputRef, outputBytes, true)
+}
 
+// CompleteRemote records the final result of a task executed on a remote
+// worker. Unlike Complete it does NOT apply retry logic — the remote worker
+// already exhausted retries locally, so the terminal status is adopted directly.
+func (c *Coordinator) CompleteRemote(id string, exitCode int, stdout, stderr, errMsg, outputRef string, outputBytes int64) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.finalize(id, exitCode, stdout, stderr, errMsg, outputRef, outputBytes, false)
+}
+
+// finalize records a worker result onto a task and transitions it to its next
+// state. The caller must hold c.mu. When retry is true (local execution), a
+// non-zero exit re-enqueues the task until MaxRetries is reached; when false
+// (remote execution), a non-zero exit is terminal immediately.
+func (c *Coordinator) finalize(id string, exitCode int, stdout, stderr, errMsg, outputRef string, outputBytes int64, retry bool) error {
 	t, ok := c.tasks[id]
 	if !ok {
 		return fmt.Errorf("task not found: %s", id)
 	}
 
 	// If the task already reached a terminal state (e.g. cancelled while
-	// dispatched to a remote worker), don't process the result again.
-	// This prevents double ReleaseRefs and double waiter notification.
+	// dispatched to a remote worker), don't process the result again. This
+	// prevents double ReleaseRefs and double waiter notification.
 	if t.Status.IsTerminal() {
 		return nil
 	}
@@ -432,39 +449,47 @@ func (c *Coordinator) Complete(id string, exitCode int, stdout, stderr, errMsg, 
 	t.OutputRef = outputRef
 	t.Metrics.CompletedAt = time.Now()
 	t.Metrics.WallTime = model.Duration(t.Metrics.CompletedAt.Sub(t.Metrics.StartedAt))
+	t.Metrics.OutputBytes = outputBytes
 
 	if t.Worker != "" {
 		c.workerLoad.TaskFinished(t.Worker)
 		c.workerLoad.ReleaseResources(t.Worker, t.Resources.Memory, t.Resources.CPUCores, t.Resources.GPUs)
 	}
-	t.Metrics.OutputBytes = outputBytes
 
-	if t.Status == model.TaskCancelling || t.Status == model.TaskCancelled {
+	switch {
+	case t.Status == model.TaskCancelling || t.Status == model.TaskCancelled:
 		// Task was being cancelled — don't retry, go straight to terminal.
 		t.Status = model.TaskCancelled
 		if t.Error == "" {
 			t.Error = "cancelled by user"
 		}
-	} else if exitCode == 0 {
+	case exitCode == 0:
 		t.Status = model.TaskCompleted
-	} else {
-		t.Attempt++
-		if t.Attempt <= t.Config.MaxRetries {
-			t.Status = model.TaskQueued
-			clearExecState(t)
-			c.queue.Push(t)
-			c.signalReady()
+	default:
+		// Non-zero exit. Local tasks retry until MaxRetries; remote tasks
+		// (retry=false) adopt the failure directly.
+		if retry {
+			t.Attempt++
+			if t.Attempt <= t.Config.MaxRetries {
+				t.Status = model.TaskQueued
+				clearExecState(t)
+				c.queue.Push(t)
+				c.signalReady()
+				break
+			}
+		}
+		if c.defaults.DeadLetter {
+			t.Status = model.TaskDeadLetter
 		} else {
-			if c.defaults.DeadLetter {
-				t.Status = model.TaskDeadLetter
-			} else {
-				t.Status = model.TaskFailed
-			}
-			if errMsg != "" {
-				t.Error = errMsg
-			} else {
-				t.Error = fmt.Sprintf("exit code %d after %d attempts", exitCode, t.Attempt)
-			}
+			t.Status = model.TaskFailed
+		}
+		switch {
+		case errMsg != "":
+			t.Error = errMsg
+		case retry:
+			t.Error = fmt.Sprintf("exit code %d after %d attempts", exitCode, t.Attempt)
+		default:
+			t.Error = fmt.Sprintf("exit code %d (remote)", exitCode)
 		}
 	}
 
@@ -479,9 +504,9 @@ func (c *Coordinator) Complete(id string, exitCode int, stdout, stderr, errMsg, 
 		if t.Metrics.WallTime > 0 {
 			metrics.TaskDuration.Observe(time.Duration(t.Metrics.WallTime).Seconds())
 		}
-		// Only release refs if this node incremented them (via Submit/ResolveRefs).
-		// Tasks accepted via AcceptDispatch have RemoteOrigin=true and never
-		// incremented local refcounts, so releasing would undercount.
+		// Only release refs if this node incremented them (via Submit/
+		// ResolveRefs). Tasks accepted via AcceptDispatch have RemoteOrigin=true
+		// and never incremented local refcounts, so releasing would undercount.
 		if !t.RemoteOrigin {
 			ReleaseRefs(t, c.store)
 		}
@@ -489,86 +514,9 @@ func (c *Coordinator) Complete(id string, exitCode int, stdout, stderr, errMsg, 
 	}
 	metrics.TaskQueueDepth.Set(float64(c.queue.Len()))
 
-	// Fire pipeline callback outside the lock to avoid deadlock.
-	// Tracked by callbackWg so shutdown can wait for completion.
+	// Fire pipeline callback outside the lock to avoid deadlock. Tracked by
+	// callbackWg so shutdown can wait for completion.
 	if terminal && c.onComplete != nil {
-		c.callbackWg.Add(1)
-		go func() {
-			defer c.callbackWg.Done()
-			c.onComplete(context.Background(), id, finalStatus)
-		}()
-	}
-
-	return nil
-}
-
-// CompleteRemote records the final result of a task that was executed on a
-// remote worker. Unlike Complete, it does NOT apply retry logic — the remote
-// worker already exhausted retries locally. The coordinator adopts the
-// terminal status directly.
-func (c *Coordinator) CompleteRemote(id string, exitCode int, stdout, stderr, errMsg, outputRef string, outputBytes int64) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	t, ok := c.tasks[id]
-	if !ok {
-		return fmt.Errorf("task not found: %s", id)
-	}
-
-	if t.Status.IsTerminal() {
-		return nil
-	}
-
-	t.ExitCode = exitCode
-	t.Stdout = stdout
-	t.Stderr = stderr
-	t.OutputRef = outputRef
-	t.Metrics.CompletedAt = time.Now()
-	t.Metrics.WallTime = model.Duration(t.Metrics.CompletedAt.Sub(t.Metrics.StartedAt))
-	t.Metrics.OutputBytes = outputBytes
-
-	if t.Worker != "" {
-		c.workerLoad.TaskFinished(t.Worker)
-		c.workerLoad.ReleaseResources(t.Worker, t.Resources.Memory, t.Resources.CPUCores, t.Resources.GPUs)
-	}
-
-	// Adopt terminal status directly — no retry logic.
-	if t.Status == model.TaskCancelling || t.Status == model.TaskCancelled {
-		t.Status = model.TaskCancelled
-		if t.Error == "" {
-			t.Error = "cancelled by user"
-		}
-	} else if exitCode == 0 {
-		t.Status = model.TaskCompleted
-	} else {
-		if c.defaults.DeadLetter {
-			t.Status = model.TaskDeadLetter
-		} else {
-			t.Status = model.TaskFailed
-		}
-		if errMsg != "" {
-			t.Error = errMsg
-		} else {
-			t.Error = fmt.Sprintf("exit code %d (remote)", exitCode)
-		}
-	}
-
-	if err := c.persist.Save(t); err != nil {
-		c.log.Error("failed to persist remote completion", "id", id, "err", err)
-	}
-
-	finalStatus := t.Status
-	metrics.TasksCompleted.WithLabelValues(t.Status.String()).Inc()
-	if t.Metrics.WallTime > 0 {
-		metrics.TaskDuration.Observe(time.Duration(t.Metrics.WallTime).Seconds())
-	}
-	if !t.RemoteOrigin {
-		ReleaseRefs(t, c.store)
-	}
-	c.notifyWaiters(id)
-	metrics.TaskQueueDepth.Set(float64(c.queue.Len()))
-
-	if c.onComplete != nil {
 		c.callbackWg.Add(1)
 		go func() {
 			defer c.callbackWg.Done()
