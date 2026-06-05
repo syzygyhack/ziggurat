@@ -76,22 +76,28 @@ func (s *Store) decrRef(hashHex string) error {
 	})
 }
 
-func incrRefInTx(tx *bbolt.Tx, hashHex string) error {
+// updateMetaInTx loads the metadata for hashHex, applies mutate, and writes it
+// back, all within tx. When the object is absent: missingSkip=true makes it a
+// no-op (nil), otherwise it returns an "object not found" error. A missing
+// bucket is always an error — the objects bucket is created at store open
+// (CreateBucketIfNotExists), so this is an unreachable defensive check.
+func updateMetaInTx(tx *bbolt.Tx, hashHex string, missingSkip bool, mutate func(*model.ObjectMeta)) error {
 	b := tx.Bucket(bucketObjects)
 	if b == nil {
 		return fmt.Errorf("objects bucket not initialized")
 	}
 	data := b.Get([]byte(hashHex))
 	if data == nil {
+		if missingSkip {
+			return nil
+		}
 		return fmt.Errorf("object not found: %s", hashHex[:12])
 	}
 	var meta model.ObjectMeta
 	if err := json.Unmarshal(data, &meta); err != nil {
 		return err
 	}
-	meta.RefCount++
-	// Clear unreferenced timestamp — object is referenced again.
-	meta.UnreferencedAt = time.Time{}
+	mutate(&meta)
 	updated, err := json.Marshal(&meta)
 	if err != nil {
 		return err
@@ -99,30 +105,27 @@ func incrRefInTx(tx *bbolt.Tx, hashHex string) error {
 	return b.Put([]byte(hashHex), updated)
 }
 
-func decrRefInTx(tx *bbolt.Tx, hashHex string) error {
-	b := tx.Bucket(bucketObjects)
-	if b == nil {
-		return fmt.Errorf("objects bucket not initialized")
-	}
-	data := b.Get([]byte(hashHex))
-	if data == nil {
-		return nil // object already gone
-	}
-	var meta model.ObjectMeta
-	if err := json.Unmarshal(data, &meta); err != nil {
-		return err
-	}
+// decrRefAndStamp decrements a refcount (clamped at zero) and records
+// UnreferencedAt when it reaches zero, starting the GC grace period.
+func decrRefAndStamp(meta *model.ObjectMeta) {
 	meta.RefCount--
 	if meta.RefCount < 0 {
 		meta.RefCount = 0
 	}
-	// Record when refcount reaches zero for GC grace period.
 	if meta.RefCount == 0 && meta.UnreferencedAt.IsZero() {
 		meta.UnreferencedAt = time.Now()
 	}
-	updated, err := json.Marshal(&meta)
-	if err != nil {
-		return err
-	}
-	return b.Put([]byte(hashHex), updated)
+}
+
+func incrRefInTx(tx *bbolt.Tx, hashHex string) error {
+	return updateMetaInTx(tx, hashHex, false, func(meta *model.ObjectMeta) {
+		meta.RefCount++
+		// Clear unreferenced timestamp — object is referenced again.
+		meta.UnreferencedAt = time.Time{}
+	})
+}
+
+func decrRefInTx(tx *bbolt.Tx, hashHex string) error {
+	// Missing object is a no-op: it may have already been collected.
+	return updateMetaInTx(tx, hashHex, true, decrRefAndStamp)
 }

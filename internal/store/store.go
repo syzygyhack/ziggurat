@@ -221,28 +221,13 @@ func (s *Store) createErasureShards(hashHex string, size int64) error {
 
 // setErasureParams updates ObjectMeta with erasure coding parameters.
 func (s *Store) setErasureParams(hashHex string, params *model.ErasureParams) error {
+	// Missing object is a no-op: it will be added by putOrIncrRef and the
+	// params merged later.
 	return s.db.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(bucketObjects)
-		if b == nil {
-			return nil
-		}
-		data := b.Get([]byte(hashHex))
-		if data == nil {
-			// Object not yet in metadata — it will be added by putOrIncrRef.
-			// Store params in a temporary location and merge later.
-			return nil
-		}
-		var meta model.ObjectMeta
-		if err := json.Unmarshal(data, &meta); err != nil {
-			return err
-		}
-		meta.Strategy = model.ErasureCoded
-		meta.Erasure = params
-		updated, err := json.Marshal(&meta)
-		if err != nil {
-			return err
-		}
-		return b.Put([]byte(hashHex), updated)
+		return updateMetaInTx(tx, hashHex, true, func(meta *model.ObjectMeta) {
+			meta.Strategy = model.ErasureCoded
+			meta.Erasure = params
+		})
 	})
 }
 
@@ -533,32 +518,12 @@ func (s *Store) PutECShardReplica(hashHex string, ecParams *model.ErasureParams)
 // Called when the origin node (or its GC) signals that the object is no longer
 // needed cluster-wide. Safe to call multiple times (idempotent unpin).
 func (s *Store) RetireReplica(hashHex string) error {
+	// Missing object is a no-op (already gone).
 	return s.db.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(bucketObjects)
-		if b == nil {
-			return nil
-		}
-		data := b.Get([]byte(hashHex))
-		if data == nil {
-			return nil // already gone
-		}
-		var meta model.ObjectMeta
-		if err := json.Unmarshal(data, &meta); err != nil {
-			return err
-		}
-		meta.Pinned = false
-		meta.RefCount--
-		if meta.RefCount < 0 {
-			meta.RefCount = 0
-		}
-		if meta.RefCount == 0 && meta.UnreferencedAt.IsZero() {
-			meta.UnreferencedAt = time.Now()
-		}
-		updated, err := json.Marshal(&meta)
-		if err != nil {
-			return err
-		}
-		return b.Put([]byte(hashHex), updated)
+		return updateMetaInTx(tx, hashHex, true, func(meta *model.ObjectMeta) {
+			meta.Pinned = false
+			decrRefAndStamp(meta)
+		})
 	})
 }
 
@@ -579,25 +544,10 @@ func (s *Store) Pin(hashHex string) error {
 		return err
 	}
 	return s.db.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(bucketObjects)
-		if b == nil {
-			return fmt.Errorf("objects bucket not found")
-		}
-		data := b.Get([]byte(hashHex))
-		if data == nil {
-			return fmt.Errorf("object not found: %s", hashHex[:12])
-		}
-		var meta model.ObjectMeta
-		if err := json.Unmarshal(data, &meta); err != nil {
-			return err
-		}
-		meta.RefCount++
-		meta.Pinned = true
-		updated, err := json.Marshal(meta)
-		if err != nil {
-			return err
-		}
-		return b.Put([]byte(hashHex), updated)
+		return updateMetaInTx(tx, hashHex, false, func(meta *model.ObjectMeta) {
+			meta.RefCount++
+			meta.Pinned = true
+		})
 	})
 }
 
@@ -609,30 +559,10 @@ func (s *Store) Unpin(hashHex string) error {
 		return err
 	}
 	return s.db.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(bucketObjects)
-		if b == nil {
-			return fmt.Errorf("objects bucket not found")
-		}
-		data := b.Get([]byte(hashHex))
-		if data == nil {
-			return fmt.Errorf("object not found: %s", hashHex[:12])
-		}
-		var meta model.ObjectMeta
-		if err := json.Unmarshal(data, &meta); err != nil {
-			return err
-		}
-		if meta.RefCount > 0 {
-			meta.RefCount--
-		}
-		meta.Pinned = false
-		if meta.RefCount == 0 && meta.UnreferencedAt.IsZero() {
-			meta.UnreferencedAt = time.Now()
-		}
-		updated, err := json.Marshal(meta)
-		if err != nil {
-			return err
-		}
-		return b.Put([]byte(hashHex), updated)
+		return updateMetaInTx(tx, hashHex, false, func(meta *model.ObjectMeta) {
+			decrRefAndStamp(meta)
+			meta.Pinned = false
+		})
 	})
 }
 
