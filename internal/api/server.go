@@ -55,11 +55,6 @@ func NewWithOptions(c *coord.Coordinator, s *store.Store, log *slog.Logger, maxU
 	return newServer(c, s, nil, log, maxUploadSize, "")
 }
 
-// NewCluster creates an API server with cluster node awareness.
-func NewCluster(c *coord.Coordinator, s *store.Store, nodes NodeLister, log *slog.Logger, maxUploadSize int64) *Server {
-	return newServer(c, s, nodes, log, maxUploadSize, "")
-}
-
 // NewClusterWithAuth creates a cluster-aware API server with optional
 // bearer token authentication. An empty apiToken disables auth.
 func NewClusterWithAuth(c *coord.Coordinator, s *store.Store, nodes NodeLister, log *slog.Logger, maxUploadSize int64, apiToken string) *Server {
@@ -143,16 +138,6 @@ func (s *Server) StartRateLimiterCleanup(ctx context.Context) {
 	if s.rateLimiter != nil {
 		s.rateLimiter.BackgroundCleanup(ctx, 5*time.Minute)
 	}
-}
-
-// Start begins listening on the given address.
-func (s *Server) Start(addr string) error {
-	s.srv = &http.Server{
-		Addr:    addr,
-		Handler: s.router,
-	}
-	s.log.Info("http api listening", "addr", addr)
-	return s.srv.ListenAndServe()
 }
 
 // Listen binds the address and returns the listener without serving.

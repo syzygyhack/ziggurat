@@ -2,54 +2,7 @@ package node
 
 import (
 	"testing"
-
-	"github.com/syzygyhack/ziggurat/internal/util"
 )
-
-func TestParseCUDAVersion(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{
-			name: "standard nvcc output",
-			input: `nvcc: NVIDIA (R) Cuda compiler driver
-Copyright (c) 2005-2024 NVIDIA Corporation
-Built on Thu_Mar_28_02:18:24_PDT_2024
-Cuda compilation tools, release 12.4, V12.4.131
-Build cuda_12.4.r12.4/compiler.34097967_0`,
-			want: "12.4",
-		},
-		{
-			name:  "release 11.8",
-			input: "Cuda compilation tools, release 11.8, V11.8.89",
-			want:  "11.8",
-		},
-		{
-			name:  "no release line",
-			input: "some random output\nno version here",
-			want:  "",
-		},
-		{
-			name:  "empty",
-			input: "",
-			want:  "",
-		},
-		{
-			name:  "release at end of line",
-			input: "Cuda compilation tools, release 12.0",
-			want:  "12.0",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := util.ParseCUDAVersion(tt.input); got != tt.want {
-				t.Errorf("util.ParseCUDAVersion() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
 
 func TestDedup(t *testing.T) {
 	tests := []struct {

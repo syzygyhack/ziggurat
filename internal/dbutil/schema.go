@@ -57,9 +57,9 @@ func CheckSchema(db *bbolt.DB, dbName string, codeVersion uint64) error {
 	})
 }
 
-// GetSchemaVersion reads the schema version from a database. Returns 0
+// getSchemaVersion reads the schema version from a database. Returns 0
 // if the _meta bucket or schema_version key does not exist.
-func GetSchemaVersion(db *bbolt.DB) (uint64, error) {
+func getSchemaVersion(db *bbolt.DB) (uint64, error) {
 	var version uint64
 	err := db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketMeta)

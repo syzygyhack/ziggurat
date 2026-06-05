@@ -26,7 +26,7 @@ func TestCheckSchema_FreshDB(t *testing.T) {
 	}
 
 	// Verify version was written.
-	got, err := GetSchemaVersion(db)
+	got, err := getSchemaVersion(db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestCheckSchema_OlderVersion(t *testing.T) {
 		t.Fatalf("unexpected error migrating from 1 to 2: %v", err)
 	}
 
-	got, err := GetSchemaVersion(db)
+	got, err := getSchemaVersion(db)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestGetSchemaVersion_EmptyDB(t *testing.T) {
 	db := openTestDB(t)
 
 	// No _meta bucket → version 0.
-	got, err := GetSchemaVersion(db)
+	got, err := getSchemaVersion(db)
 	if err != nil {
 		t.Fatal(err)
 	}

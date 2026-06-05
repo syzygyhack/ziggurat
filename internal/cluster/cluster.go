@@ -208,11 +208,6 @@ func New(cfg Config, log *slog.Logger) (*Cluster, error) {
 	return c, nil
 }
 
-// Join attempts to join nodes at the given addresses.
-func (c *Cluster) Join(addrs []string) (int, error) {
-	return c.ml.Join(addrs)
-}
-
 // Leave gracefully leaves the cluster with a timeout.
 func (c *Cluster) Leave() error {
 	return c.ml.Leave(0)

@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -198,9 +197,4 @@ func writeEnvFile(env []string) (string, error) {
 		return "", err
 	}
 	return f.Name(), nil
-}
-
-// isAbsPath reports whether p is an absolute path on this platform.
-func isAbsPath(p string) bool {
-	return filepath.IsAbs(p)
 }
