@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 	"sync"
 	"time"
 
@@ -815,54 +817,18 @@ func (c *Coordinator) resolveID(id string) (string, error) {
 // Params — a caller that appends or mutates those would corrupt coordinator state.
 func deepCopyTask(t *model.Task) *model.Task {
 	cp := *t
-	if t.Command != nil {
-		cp.Command = make([]string, len(t.Command))
-		copy(cp.Command, t.Command)
-	}
-	if t.Env != nil {
-		cp.Env = make(map[string]string, len(t.Env))
-		for k, v := range t.Env {
-			cp.Env[k] = v
-		}
-	}
-	if t.InputRefs != nil {
-		cp.InputRefs = make(map[string]string, len(t.InputRefs))
-		for k, v := range t.InputRefs {
-			cp.InputRefs[k] = v
-		}
-	}
-	if t.Artifacts != nil {
-		cp.Artifacts = make([]string, len(t.Artifacts))
-		copy(cp.Artifacts, t.Artifacts)
-	}
-	if t.ArtifactNames != nil {
-		cp.ArtifactNames = make([]string, len(t.ArtifactNames))
-		copy(cp.ArtifactNames, t.ArtifactNames)
-	}
-	if t.Params != nil {
-		cp.Params = make(map[string]string, len(t.Params))
-		for k, v := range t.Params {
-			cp.Params[k] = v
-		}
-	}
-	if t.Requires != nil {
-		cp.Requires = make([]string, len(t.Requires))
-		copy(cp.Requires, t.Requires)
-	}
-	if t.Constraints != nil {
-		cp.Constraints = make([]string, len(t.Constraints))
-		copy(cp.Constraints, t.Constraints)
-	}
+	cp.Command = slices.Clone(t.Command)
+	cp.Env = maps.Clone(t.Env)
+	cp.InputRefs = maps.Clone(t.InputRefs)
+	cp.Artifacts = slices.Clone(t.Artifacts)
+	cp.ArtifactNames = slices.Clone(t.ArtifactNames)
+	cp.Params = maps.Clone(t.Params)
+	cp.Requires = slices.Clone(t.Requires)
+	cp.Constraints = slices.Clone(t.Constraints)
 	if t.Environment != nil {
 		envCp := *t.Environment
-		if t.Environment.Setup != nil {
-			envCp.Setup = make([]string, len(t.Environment.Setup))
-			copy(envCp.Setup, t.Environment.Setup)
-		}
-		if t.Environment.Fingerprint != nil {
-			envCp.Fingerprint = make([]string, len(t.Environment.Fingerprint))
-			copy(envCp.Fingerprint, t.Environment.Fingerprint)
-		}
+		envCp.Setup = slices.Clone(t.Environment.Setup)
+		envCp.Fingerprint = slices.Clone(t.Environment.Fingerprint)
 		cp.Environment = &envCp
 	}
 	return &cp

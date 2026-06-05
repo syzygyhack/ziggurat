@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -469,38 +471,13 @@ func deepCopyPipeline(p *model.Pipeline) *model.Pipeline {
 	cp.Stages = make([]model.Stage, len(p.Stages))
 	for i, s := range p.Stages {
 		cp.Stages[i] = s
-		if s.Command != nil {
-			cp.Stages[i].Command = make([]string, len(s.Command))
-			copy(cp.Stages[i].Command, s.Command)
-		}
-		if s.Artifacts != nil {
-			cp.Stages[i].Artifacts = make([]string, len(s.Artifacts))
-			copy(cp.Stages[i].Artifacts, s.Artifacts)
-		}
-		if s.InputRefs != nil {
-			cp.Stages[i].InputRefs = make(map[string]string, len(s.InputRefs))
-			for k, v := range s.InputRefs {
-				cp.Stages[i].InputRefs[k] = v
-			}
-		}
-		if s.Params != nil {
-			cp.Stages[i].Params = make(map[string]string, len(s.Params))
-			for k, v := range s.Params {
-				cp.Stages[i].Params[k] = v
-			}
-		}
-		if s.Requires != nil {
-			cp.Stages[i].Requires = make([]string, len(s.Requires))
-			copy(cp.Stages[i].Requires, s.Requires)
-		}
-		if s.Constraints != nil {
-			cp.Stages[i].Constraints = make([]string, len(s.Constraints))
-			copy(cp.Stages[i].Constraints, s.Constraints)
-		}
-		if s.DependsOn != nil {
-			cp.Stages[i].DependsOn = make([]string, len(s.DependsOn))
-			copy(cp.Stages[i].DependsOn, s.DependsOn)
-		}
+		cp.Stages[i].Command = slices.Clone(s.Command)
+		cp.Stages[i].Artifacts = slices.Clone(s.Artifacts)
+		cp.Stages[i].InputRefs = maps.Clone(s.InputRefs)
+		cp.Stages[i].Params = maps.Clone(s.Params)
+		cp.Stages[i].Requires = slices.Clone(s.Requires)
+		cp.Stages[i].Constraints = slices.Clone(s.Constraints)
+		cp.Stages[i].DependsOn = slices.Clone(s.DependsOn)
 	}
 	return &cp
 }
