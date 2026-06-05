@@ -10,6 +10,15 @@ import (
 	"github.com/zeebo/blake3"
 )
 
+// hashBytes returns the BLAKE3-256 digest of b.
+func hashBytes(b []byte) [32]byte {
+	h := blake3.New()
+	h.Write(b)
+	var out [32]byte
+	h.Sum(out[:0])
+	return out
+}
+
 // ValidateHashHex checks that a hash string is exactly 64 hex characters
 // (a valid hex-encoded BLAKE3 digest). Case is normalised before validation.
 // This must be called on any hash received from an untrusted source before it

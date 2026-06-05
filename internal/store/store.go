@@ -15,7 +15,6 @@ import (
 	"github.com/syzygyhack/ziggurat/internal/config"
 	"github.com/syzygyhack/ziggurat/internal/dbutil"
 	"github.com/syzygyhack/ziggurat/internal/model"
-	"github.com/zeebo/blake3"
 	"go.etcd.io/bbolt"
 )
 
@@ -351,10 +350,7 @@ func (s *Store) getByHashEC(ctx context.Context, hashHex string) (io.ReadCloser,
 			}
 			// Verify fetched shard integrity.
 			if idx < len(shardHashes) {
-				hasher := blake3.New()
-				hasher.Write(data)
-				var actual [32]byte
-				hasher.Sum(actual[:0])
+				actual := hashBytes(data)
 				if actual != shardHashes[idx] {
 					s.log.Warn("remote shard integrity mismatch", "hash", hashHex[:12], "index", idx, "node", nodeID)
 					continue
@@ -377,10 +373,7 @@ func (s *Store) getByHashEC(ctx context.Context, hashHex string) (io.ReadCloser,
 	// Re-verify the reconstructed blob against its content hash.
 	// Without this, a malicious peer could poison shards so the
 	// reconstruction produces bytes that don't match the content address.
-	hasher := blake3.New()
-	hasher.Write(decoded)
-	var gotHash [32]byte
-	hasher.Sum(gotHash[:0])
+	gotHash := hashBytes(decoded)
 	if hex.EncodeToString(gotHash[:]) != hashHex {
 		return nil, fmt.Errorf("reconstructed data integrity check failed for %s", hashHex[:12])
 	}

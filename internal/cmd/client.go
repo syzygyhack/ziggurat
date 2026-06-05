@@ -159,18 +159,35 @@ func doDelete(path string) (*http.Response, error) {
 func readJSON(resp *http.Response, v any) error {
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		var errResp struct {
-			Error string `json:"error"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&errResp); err == nil && errResp.Error != "" {
-			return fmt.Errorf("server: %s", errResp.Error)
-		}
-		return fmt.Errorf("server returned %d", resp.StatusCode)
+		return decodeServerError(resp)
 	}
 	if v == nil {
 		return nil
 	}
 	return json.NewDecoder(resp.Body).Decode(v)
+}
+
+// decodeServerError turns a >=400 response into an error, preferring the
+// server's JSON {"error": ...} message and falling back to the status code.
+// Callers that stream the body (so can't use readJSON) use this on the error
+// path. Does not close the body.
+func decodeServerError(resp *http.Response) error {
+	var errResp struct {
+		Error string `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&errResp); err == nil && errResp.Error != "" {
+		return fmt.Errorf("server: %s", errResp.Error)
+	}
+	return fmt.Errorf("server returned %d", resp.StatusCode)
+}
+
+// exitCodeForResult derives a process exit code from a task result map: the
+// task's own exit code when it's a meaningful failure (1..125), else 3.
+func exitCodeForResult(m map[string]any) int {
+	if ec, ok := m["exit_code"].(float64); ok && int(ec) > 0 && int(ec) < 126 {
+		return int(ec)
+	}
+	return 3
 }
 
 // ExitError is returned by commands that want to set a specific process exit code.

@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -24,11 +23,7 @@ func runPin(cmd *cobra.Command, args []string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		var errBody struct {
-			Error string `json:"error"`
-		}
-		json.NewDecoder(resp.Body).Decode(&errBody)
-		return fmt.Errorf("server: %s", errBody.Error)
+		return decodeServerError(resp)
 	}
 	fmt.Printf("pinned %s\n", args[0])
 	return nil
@@ -51,11 +46,7 @@ func runUnpin(cmd *cobra.Command, args []string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		var errBody struct {
-			Error string `json:"error"`
-		}
-		json.NewDecoder(resp.Body).Decode(&errBody)
-		return fmt.Errorf("server: %s", errBody.Error)
+		return decodeServerError(resp)
 	}
 	fmt.Printf("unpinned %s\n", args[0])
 	return nil

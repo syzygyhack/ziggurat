@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/klauspost/reedsolomon"
-	"github.com/zeebo/blake3"
 )
 
 // ErasureCodec encodes and decodes objects using Reed-Solomon erasure coding.
@@ -105,9 +104,7 @@ func WriteShards(storeDir, hashHex string, shards [][]byte) ([][32]byte, error) 
 
 	hashes := make([][32]byte, len(shards))
 	for i, shard := range shards {
-		hasher := blake3.New()
-		hasher.Write(shard)
-		hasher.Sum(hashes[i][:0])
+		hashes[i] = hashBytes(shard)
 
 		path := shardPath(storeDir, hashHex, i)
 		if err := os.WriteFile(path, shard, 0o644); err != nil {
@@ -125,10 +122,7 @@ func ReadShard(storeDir, hashHex string, index int, expectedHash [32]byte) ([]by
 		return nil, fmt.Errorf("read shard %d: %w", index, err)
 	}
 
-	var actual [32]byte
-	hasher := blake3.New()
-	hasher.Write(data)
-	hasher.Sum(actual[:0])
+	actual := hashBytes(data)
 
 	if actual != expectedHash {
 		return nil, fmt.Errorf("shard %d integrity check failed: expected %s, got %s",
@@ -206,10 +200,7 @@ func EncodeAndWrite(storeDir string, r io.Reader, codec *ErasureCodec) ([32]byte
 	}
 
 	// Compute content hash over the full original data.
-	var contentHash [32]byte
-	hasher := blake3.New()
-	hasher.Write(data)
-	hasher.Sum(contentHash[:0])
+	contentHash := hashBytes(data)
 
 	hashHex := hex.EncodeToString(contentHash[:])
 	size := int64(len(data))

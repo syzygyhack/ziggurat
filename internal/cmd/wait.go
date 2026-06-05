@@ -62,11 +62,7 @@ func runWaitCmd(cmd *cobra.Command, args []string) error {
 	if jsonOut {
 		printJSON(result)
 		if status != "completed" {
-			exitCode := 3
-			if ec, ok := result["exit_code"].(float64); ok && int(ec) > 0 && int(ec) < 126 {
-				exitCode = int(ec)
-			}
-			return &ExitError{Code: exitCode, Msg: fmt.Sprintf("task %s", status)}
+			return &ExitError{Code: exitCodeForResult(result), Msg: fmt.Sprintf("task %s", status)}
 		}
 		return nil
 	}
@@ -85,12 +81,8 @@ func runWaitCmd(cmd *cobra.Command, args []string) error {
 
 	if status != "completed" {
 		errMsg, _ := result["error"].(string)
-		exitCode := 3
-		if ec, ok := result["exit_code"].(float64); ok && int(ec) > 0 && int(ec) < 126 {
-			exitCode = int(ec)
-		}
 		return &ExitError{
-			Code: exitCode,
+			Code: exitCodeForResult(result),
 			Msg:  fmt.Sprintf("task %s: %s", status, strings.TrimSpace(errMsg)),
 		}
 	}

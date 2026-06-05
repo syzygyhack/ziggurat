@@ -121,11 +121,7 @@ func streamSSE(r io.ReadCloser) error {
 					}
 					if status, ok := doneCheck["status"].(string); ok {
 						if status != "completed" {
-							exitCode := 3
-							if ec, ok := doneCheck["exit_code"].(float64); ok && int(ec) > 0 && int(ec) < 126 {
-								exitCode = int(ec)
-							}
-							return &ExitError{Code: exitCode}
+							return &ExitError{Code: exitCodeForResult(doneCheck)}
 						}
 						if ec, ok := doneCheck["exit_code"].(float64); ok {
 							return &ExitError{Code: int(ec)}
