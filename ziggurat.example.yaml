@@ -4,6 +4,7 @@
 
 node:
   # name: ""                 # Human-readable node name (auto-generated if empty)
+  # role: hybrid             # hybrid | coordinator | worker
   # tags: []                 # Presence flags for task routing (e.g. ["gpu", "python3"])
   # capabilities: {}         # Typed key-value overrides (e.g. python.version: "3.12")
                               # Auto-detected: os, arch, cpu.cores (cgroup-aware),
@@ -31,9 +32,10 @@ network:
 #   addr: "127.0.0.1:7100"   # Override with ZIGGURAT_ADDR env var
 
 cluster:
-  discovery: auto             # auto | static | manual
+  discovery: auto             # auto | mdns | static (auto and mdns enable mDNS discovery)
   # seeds: []                 # Seed nodes for static discovery
   name: default               # Cluster name for mDNS isolation
+  # join_timeout: 10s         # Timeout for the initial cluster-join attempt
 
 storage:
   # data_dir: ""              # Override store directory (default: <node.data_dir>/store)

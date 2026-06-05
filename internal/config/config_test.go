@@ -7,6 +7,20 @@ import (
 	"time"
 )
 
+// TestExampleConfigParses guards the canonical sample against schema drift: the
+// committed ziggurat.example.yaml must load under the strict (KnownFields)
+// parser. Catches a documented key being removed/renamed in the struct, or an
+// unknown key creeping into the sample.
+func TestExampleConfigParses(t *testing.T) {
+	path := filepath.Join("..", "..", "ziggurat.example.yaml")
+	if _, err := os.Stat(path); err != nil {
+		t.Skipf("example config not found: %v", err)
+	}
+	if _, err := LoadConfig(path); err != nil {
+		t.Fatalf("ziggurat.example.yaml failed strict parse: %v", err)
+	}
+}
+
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 
