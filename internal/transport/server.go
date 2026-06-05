@@ -364,7 +364,7 @@ func (s *Server) pushFullBlob(stream pb.ZigguratNode_PushShardServer, hdr *pb.Pu
 		})
 	}
 
-	gotHash := fmt.Sprintf("%x", writeHash)
+	gotHash := hex.EncodeToString(writeHash[:])
 	if gotHash != hdr.Hash {
 		// Only remove the blob if we created it. If WriteBlob deduplicated
 		// against an existing file, deleting it would destroy a valid blob

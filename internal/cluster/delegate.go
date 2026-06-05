@@ -2,6 +2,8 @@ package cluster
 
 import (
 	"log/slog"
+	"maps"
+	"slices"
 	"sync"
 )
 
@@ -28,15 +30,8 @@ func copyMeta(m *NodeMeta) *NodeMeta {
 		return nil
 	}
 	cp := *m
-	if m.Caps != nil {
-		cp.Caps = make(map[string]string, len(m.Caps))
-		for k, v := range m.Caps {
-			cp.Caps[k] = v
-		}
-	}
-	if m.Tags != nil {
-		cp.Tags = append([]string(nil), m.Tags...)
-	}
+	cp.Caps = maps.Clone(m.Caps)
+	cp.Tags = slices.Clone(m.Tags)
 	return &cp
 }
 

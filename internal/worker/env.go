@@ -3,6 +3,7 @@ package worker
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"os"
@@ -153,7 +154,7 @@ func computeFingerprint(files []string, workspace string) (string, error) {
 		h.Write(data)
 		h.Write([]byte{0})
 	}
-	return fmt.Sprintf("%x", h.Sum(nil)), nil
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // readFingerprintFile searches for a file by name in workspace root, then
